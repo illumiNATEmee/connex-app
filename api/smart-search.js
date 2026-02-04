@@ -121,13 +121,16 @@ export default async function handler(req, res) {
     const searchClues = [...clues];
     if (phone) searchClues.push(...phoneToSearchClues(phone));
 
-    // Round 1: basic search
-    // Round 2+: use previous results to refine queries
+    // Smart query construction based on round
     let queries;
+    const company = searchClues.find(c => c.includes("company:"))?.replace("company:", "").trim();
+    const school = searchClues.find(c => c.includes("education:"))?.replace("education:", "").trim();
+
     if (round === 1) {
+      // Tier 1: LinkedIn + professional identity
       queries = [
-        `"${name}" ${searchClues[0] || ""}`.trim(),
-        searchClues[1] ? `"${name}" ${searchClues[1]}` : `"${name}" linkedin`,
+        `"${name}" site:linkedin.com${company ? ` "${company}"` : ""}`,
+        company ? `"${name}" "${company}"` : school ? `"${name}" "${school}"` : `"${name}" ${searchClues[0] || ""}`.trim(),
       ].filter(Boolean);
     } else if (prevResult?.needs_more_data && prevResult?.next_search_queries?.length) {
       // Use Brain's suggested next queries

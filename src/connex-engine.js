@@ -281,39 +281,121 @@ export function extractSelfDisclosures(messages) {
   return disclosures;
 }
 
-// Build Google search queries for high-priority contacts
-export function generateSearchQueries(profiles, intents, endorsements, disclosures) {
+// Extract ALL identifiers from chat — emails, personal links, company+name combos
+export function extractIdentifiers(messages, memberNames) {
+  const identifiers = {};
+
+  memberNames.forEach(name => identifiers[name] = { emails: [], ownLinks: [], companies: [], schools: [], nameContext: [] });
+
+  const emailPattern = /[\w.-]+@[\w.-]+\.\w+/g;
+  const companyPattern = /(?:work(?:s|ing)? (?:at|for|with)|joined|at|@)\s+([A-Z][A-Za-z0-9 &]+)/g;
+  const schoolPattern = /(?:went to|studied at|graduated from|alumni of|at)\s+([A-Z][A-Za-z ]+(?:University|College|School|Institute|MIT|Stanford|Harvard|Wharton|MBA|PhD))/gi;
+
+  messages.forEach(msg => {
+    const sender = msg.sender;
+    if (!identifiers[sender]) return;
+
+    // Emails shared
+    const emails = msg.text.match(emailPattern) || [];
+    identifiers[sender].emails.push(...emails);
+
+    // Links that might be their OWN profiles
+    const urlPattern = /https?:\/\/[^\s]+/g;
+    const urls = msg.text.match(urlPattern) || [];
+    urls.forEach(url => {
+      if (url.includes("linkedin.com/in/") || url.includes("twitter.com/") || 
+          url.includes("x.com/") || url.includes("instagram.com/") ||
+          url.includes("github.com/") || url.includes("medium.com/@")) {
+        identifiers[sender].ownLinks.push(url);
+      }
+    });
+
+    // Company mentions by themselves
+    let match;
+    const companyRegex = /(?:work(?:s|ing)? (?:at|for|with)|joined|i'?m? at)\s+([A-Z][A-Za-z0-9 &]+)/g;
+    while ((match = companyRegex.exec(msg.text)) !== null) {
+      identifiers[sender].companies.push(match[1].trim());
+    }
+
+    // School mentions
+    const schoolRegex = /(?:went to|studied at|graduated from|alumni of)\s+([A-Z][A-Za-z ]+)/g;
+    while ((match = schoolRegex.exec(msg.text)) !== null) {
+      identifiers[sender].schools.push(match[1].trim());
+    }
+
+    // How others refer to this person: "Sarah from Stripe"
+    memberNames.forEach(otherName => {
+      if (otherName !== sender) {
+        const firstName = otherName.split(" ")[0];
+        const contextPattern = new RegExp(`${firstName}\\s+(?:from|at|of|who works at)\\s+([A-Za-z0-9 &]+)`, "i");
+        const contextMatch = msg.text.match(contextPattern);
+        if (contextMatch) {
+          if (!identifiers[otherName]) return;
+          identifiers[otherName].nameContext.push({ by: sender, context: contextMatch[1].trim() });
+        }
+      }
+    });
+  });
+
+  return identifiers;
+}
+
+// Generate SMART search queries — site-specific, multi-strategy
+export function generateSearchQueries(profiles, intents, endorsements, disclosures, identifiers) {
   return profiles.map(profile => {
     const name = profile.display_name;
+    const id = identifiers?.[name] || {};
     const clues = [];
 
-    // From disclosures
+    // From disclosures (self-stated = highest value)
     const selfData = disclosures.filter(d => d.sender === name);
     selfData.forEach(d => {
-      if (d.field === "company") clues.push(d.value);
-      if (d.field === "education") clues.push(d.value);
+      if (d.field === "company") clues.push({ type: "company", value: d.value, confidence: 0.85 });
+      if (d.field === "education") clues.push({ type: "school", value: d.value, confidence: 0.85 });
+      if (d.field === "location") clues.push({ type: "location", value: d.value, confidence: 0.85 });
+      if (d.field === "role") clues.push({ type: "role", value: d.value, confidence: 0.85 });
     });
 
-    // From endorsements
-    const endorsedFor = endorsements.filter(e => e.about === name);
-    endorsedFor.forEach(e => {
-      if (e.skill) clues.push(e.skill);
+    // From endorsements (peer-verified)
+    endorsements.filter(e => e.about === name).forEach(e => {
+      if (e.skill) clues.push({ type: "skill", value: e.skill, confidence: 0.7 });
     });
 
-    // From interests
-    const topInterest = profile.interests?.[0]?.category;
-    if (topInterest) clues.push(topInterest);
+    // From identifiers (extracted from chat)
+    (id.companies || []).forEach(c => clues.push({ type: "company", value: c, confidence: 0.8 }));
+    (id.schools || []).forEach(s => clues.push({ type: "school", value: s, confidence: 0.8 }));
+    (id.nameContext || []).forEach(nc => clues.push({ type: "context", value: nc.context, confidence: 0.7 }));
 
-    // Generate search queries
-    const queries = [`"${name}"`];
-    if (clues.length > 0) queries.push(`"${name}" ${clues[0]}`);
-    if (clues.length > 1) queries.push(`"${name}" ${clues[1]}`);
+    // Build tiered search queries
+    const queries = [];
+    const company = clues.find(c => c.type === "company")?.value;
+    const school = clues.find(c => c.type === "school")?.value;
+    const role = clues.find(c => c.type === "role")?.value;
+
+    // Tier 1: LinkedIn identity (most reliable)
+    queries.push({ query: `"${name}" site:linkedin.com${company ? ` "${company}"` : ""}`, purpose: "linkedin_identity" });
+
+    // Tier 2: Professional identity
+    if (company) queries.push({ query: `"${name}" "${company}"`, purpose: "professional" });
+    if (school) queries.push({ query: `"${name}" "${school}"`, purpose: "education" });
+
+    // Tier 3: Public presence (talks, articles, press)
+    if (company || role) {
+      queries.push({ query: `"${name}" ${company || role} interview OR podcast OR keynote OR article`, purpose: "public_presence" });
+    }
+
+    // Tier 4: Social profiles
+    queries.push({ query: `"${name}" ${company || ""} site:twitter.com OR site:x.com`.trim(), purpose: "social" });
+
+    // Direct links found in chat (highest confidence — no search needed)
+    const directLinks = id.ownLinks || [];
 
     return {
       name,
       queries,
       clues,
-      searchUrl: `https://www.google.com/search?q=${encodeURIComponent(queries[queries.length - 1])}`,
+      directLinks,
+      searchUrl: queries[0] ? `https://www.google.com/search?q=${encodeURIComponent(queries[0].query)}` : null,
     };
   });
 }
@@ -828,6 +910,8 @@ export function runPipeline(chatText) {
   const endorsements = extractEndorsements(parsedChat.messages, memberNames);
   const selfDisclosures = extractSelfDisclosures(parsedChat.messages);
 
+  const identifiers = extractIdentifiers(parsedChat.messages, memberNames);
+
   const deepSignals = {
     sharedLinks: extractSharedLinks(parsedChat.messages),
     phoneSignals: extractPhoneSignals(parsedChat.members),
@@ -837,7 +921,8 @@ export function runPipeline(chatText) {
     intents,
     endorsements,
     selfDisclosures,
-    searchQueries: generateSearchQueries(profiles, intents, endorsements, selfDisclosures),
+    identifiers,
+    searchQueries: generateSearchQueries(profiles, intents, endorsements, selfDisclosures, identifiers),
   };
 
   return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals };
