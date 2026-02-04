@@ -233,6 +233,70 @@ People in a group chat meet IRL or have meaningful conversations they wouldn't h
 
 ---
 
+## 🔗 2nd Degree Network Intelligence
+
+### The Insight
+"I know Arul. Arul knows 30 people. Who in his network should I meet — and why?"
+
+**This is the killer use case.** Not just "help groups coordinate" but "unlock your 2nd-degree network through intelligent matching."
+
+### How It Works
+
+**Input:**
+1. YOUR profile (interests, location, expertise, needs, offers) — entered manually or extracted from your own chats
+2. A FRIEND'S group chat export — their network you want to tap into
+
+**Process:**
+1. Brain profiles everyone in the group
+2. Scores each person against YOUR profile:
+   - Shared interests → potential friendship
+   - Complementary needs/offers → potential collaboration
+   - Same city → easy to meet IRL
+   - Same industry → professional value
+   - Shared affinities → instant rapport (sports, food, hobbies)
+3. Ranks matches by relevance + ease of intro
+
+**Output:**
+- Ranked list: "Top 5 people Arul should introduce you to"
+- For each match: WHO they are, WHY you'd click, WHAT to talk about
+- Pre-written intro request message: "Hey Arul, could you intro me to Chris? We're both into crypto and he's in Bangkok next month"
+- Pre-written intro message for Arul to forward
+
+### Match Scoring
+
+```
+match_score = (
+  shared_interests * 0.25 +
+  complementary_needs * 0.30 +    # Highest weight — mutual value
+  geographic_proximity * 0.20 +
+  industry_overlap * 0.15 +
+  affinity_match * 0.10
+)
+```
+
+### Trust Layer (from TRUST_TRANSFER.md)
+- Your trust in the connector (Arul) weights the suggestions
+- High trust connector → suggest more intimate intros (1:1 coffee)
+- Low trust connector → suggest group settings first
+- Connector's "intro track record" shown alongside suggestions
+
+### User Flow (MVP)
+```
+1. "I want to find connections through a friend"
+2. Enter YOUR profile (name, city, interests, looking_for)
+3. Upload FRIEND'S group chat
+4. Connex Brain analyzes → matches → ranks
+5. Shows: "Top matches for you in Arul's network"
+6. Copy intro request message → send to Arul
+```
+
+### Why This Wins
+- LinkedIn shows you 2nd-degree connections but with ZERO context
+- Connex has the ACTUAL conversation data — what people care about, how they talk, what they need
+- A WhatsApp chat reveals more about someone than their LinkedIn profile ever will
+
+---
+
 ## ❓ Open Questions
 
 - How to get calendar data? (Cal.com integration? Calendly?)

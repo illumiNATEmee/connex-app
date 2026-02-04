@@ -236,6 +236,85 @@ export function getDMStrategy(profiles) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// 2ND DEGREE NETWORK MATCHING
+// ═══════════════════════════════════════════════════════════
+
+export function matchMyProfile(myProfile, groupProfiles) {
+  // myProfile: { name, city, interests: [], expertise: [], looking_for: [], offering: [], affinities: {} }
+  // groupProfiles: enriched profiles from a friend's group chat
+  
+  const matches = groupProfiles.map(profile => {
+    let score = 0;
+    const reasons = [];
+
+    // Shared interests (0.25)
+    const myInterests = (myProfile.interests || []).map(i => i.toLowerCase());
+    const theirInterests = profile.interests.flatMap(i => i.keywords || [i.category]);
+    const sharedInterests = myInterests.filter(i => theirInterests.some(t => t.toLowerCase().includes(i) || i.includes(t.toLowerCase())));
+    if (sharedInterests.length > 0) {
+      score += Math.min(sharedInterests.length * 0.08, 0.25);
+      reasons.push(`Shared interests: ${sharedInterests.join(', ')}`);
+    }
+
+    // Complementary needs/offers (0.30)
+    const myNeeds = (myProfile.looking_for || []).map(n => n.toLowerCase());
+    const theirOffers = (profile.interests || []).map(i => i.category);
+    const myOffers = (myProfile.offering || []).map(o => o.toLowerCase());
+    const theirNeeds = []; // Can't extract needs from keyword engine alone — Brain API does this
+
+    const needsMatch = myNeeds.filter(n => theirOffers.some(o => o.includes(n) || n.includes(o)));
+    if (needsMatch.length > 0) {
+      score += Math.min(needsMatch.length * 0.15, 0.30);
+      reasons.push(`They might help with: ${needsMatch.join(', ')}`);
+    }
+
+    // Geographic proximity (0.20)
+    const myCity = normLoc(myProfile.city);
+    const theirCity = normLoc(profile.location?.primary);
+    if (myCity && theirCity && myCity.toLowerCase() === theirCity.toLowerCase()) {
+      score += 0.20;
+      reasons.push(`Both in ${myCity}`);
+    }
+
+    // Industry overlap (0.15)
+    const myExpertise = (myProfile.expertise || []).map(e => e.toLowerCase());
+    const theirExpertise = profile.interests.map(i => i.category);
+    const expertiseOverlap = myExpertise.filter(e => theirExpertise.some(t => t.includes(e) || e.includes(t)));
+    if (expertiseOverlap.length > 0) {
+      score += Math.min(expertiseOverlap.length * 0.08, 0.15);
+      reasons.push(`Industry overlap: ${expertiseOverlap.join(', ')}`);
+    }
+
+    // Affinity match (0.10)
+    const myAffinities = Object.values(myProfile.affinities || {}).flat().map(a => a.toLowerCase());
+    const theirAffinities = Object.values(profile.affinities || {}).flat().map(a => a.toLowerCase());
+    const sharedAffinities = myAffinities.filter(a => theirAffinities.includes(a));
+    if (sharedAffinities.length > 0) {
+      score += Math.min(sharedAffinities.length * 0.05, 0.10);
+      reasons.push(`Shared vibes: ${sharedAffinities.join(', ')}`);
+    }
+
+    return {
+      name: profile.display_name,
+      score: Math.round(score * 100),
+      reasons,
+      profile,
+      introMessage: generateIntroRequest(myProfile.name, profile.display_name, reasons),
+    };
+  });
+
+  return matches
+    .filter(m => m.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+}
+
+function generateIntroRequest(myName, theirName, reasons) {
+  const reasonText = reasons.slice(0, 2).join(' and ');
+  return `Hey! Would you mind introducing me to ${theirName}? ${reasonText}. Would love to connect!`;
+}
+
+// ═══════════════════════════════════════════════════════════
 // PIPELINE
 // ═══════════════════════════════════════════════════════════
 
