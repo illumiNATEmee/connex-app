@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts } from "./connex-engine.js";
+import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts, buildRelationshipGraph } from "./connex-engine.js";
 
 // Engine imported from connex-engine.js — offline fallback
 // API endpoint at /api/analyze — Claude-powered Brain analysis
@@ -269,6 +269,7 @@ export default function ConnexApp() {
         phoneSignals: extractPhoneSignals(parsedChat.members),
         timingPatterns: extractTimingPatterns(parsedChat.messages),
         emojiProfiles: extractEmojiProfile(parsedChat.messages),
+        relationshipGraph: buildRelationshipGraph(parsedChat),
       };
 
       // Step 3: Prioritize contacts (quick local scan)

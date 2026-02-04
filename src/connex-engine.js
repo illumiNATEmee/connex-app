@@ -359,6 +359,107 @@ export function getDMStrategy(profiles) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// RELATIONSHIP WEIGHT SCORING
+// ═══════════════════════════════════════════════════════════
+
+export function buildRelationshipGraph(parsedChat) {
+  const graph = {};
+
+  // Build directional interaction matrix
+  parsedChat.messages.forEach((msg, idx) => {
+    const sender = msg.sender;
+    if (!graph[sender]) graph[sender] = {};
+
+    // Look at who they're replying to (message within 5 min of previous = likely reply)
+    if (idx > 0) {
+      const prevMsg = parsedChat.messages[idx - 1];
+      if (prevMsg.sender !== sender) {
+        // Crude reply detection — sequential messages from different people
+        if (!graph[sender][prevMsg.sender]) {
+          graph[sender][prevMsg.sender] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0 };
+        }
+        graph[sender][prevMsg.sender].replies++;
+
+        // Message depth (word count)
+        const wordCount = msg.text.split(/\s+/).length;
+        graph[sender][prevMsg.sender].depths.push(wordCount);
+
+        // Late night check
+        const timeMatch = msg.time?.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+        if (timeMatch) {
+          let hour = parseInt(timeMatch[1]);
+          if (timeMatch[4]?.toUpperCase() === "PM" && hour !== 12) hour += 12;
+          if (timeMatch[4]?.toUpperCase() === "AM" && hour === 12) hour = 0;
+          if (hour >= 23 || hour <= 4) graph[sender][prevMsg.sender].lateNight++;
+        }
+
+        // Media sharing
+        if (msg.isMedia) graph[sender][prevMsg.sender].mediaShared++;
+      }
+    }
+
+    // Mention detection
+    const text = msg.text.toLowerCase();
+    parsedChat.members.forEach(member => {
+      if (member.name !== sender) {
+        const firstName = member.name.toLowerCase().split(" ")[0];
+        if (firstName.length > 2 && text.includes(firstName)) {
+          if (!graph[sender][member.name]) {
+            graph[sender][member.name] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0 };
+          }
+          graph[sender][member.name].mentions++;
+        }
+      }
+    });
+  });
+
+  // Calculate relationship scores
+  const relationships = [];
+  const processed = new Set();
+
+  Object.entries(graph).forEach(([personA, connections]) => {
+    Object.entries(connections).forEach(([personB, data]) => {
+      const key = [personA, personB].sort().join("↔");
+      if (processed.has(key)) return;
+      processed.add(key);
+
+      const reverseData = graph[personB]?.[personA] || { replies: 0, mentions: 0, depths: [], lateNight: 0, mediaShared: 0 };
+
+      // Bidirectional metrics
+      const totalInteractions = data.replies + reverseData.replies + data.mentions + reverseData.mentions;
+      const allDepths = [...data.depths, ...reverseData.depths];
+      const avgDepth = allDepths.length > 0 ? allDepths.reduce((a, b) => a + b, 0) / allDepths.length : 0;
+      const lateNightTotal = data.lateNight + reverseData.lateNight;
+      const mediaTotal = data.mediaShared + reverseData.mediaShared;
+      const isBidirectional = data.replies > 0 && reverseData.replies > 0;
+
+      // Weighted score
+      let strength = 0;
+      strength += Math.min(totalInteractions * 3, 30);          // Interaction volume (max 30)
+      strength += isBidirectional ? 15 : 0;                     // Two-way conversation (15)
+      strength += Math.min(avgDepth * 0.5, 15);                 // Message depth (max 15)
+      strength += Math.min(lateNightTotal * 5, 15);             // Late night = closeness (max 15)
+      strength += Math.min(mediaTotal * 4, 12);                 // Media sharing (max 12)
+      strength += Math.min((data.mentions + reverseData.mentions) * 3, 13); // Mentions (max 13)
+
+      relationships.push({
+        personA,
+        personB,
+        strength: Math.min(Math.round(strength), 100),
+        interactions: totalInteractions,
+        bidirectional: isBidirectional,
+        avgMessageDepth: Math.round(avgDepth),
+        lateNightMessages: lateNightTotal,
+        mediaShared: mediaTotal,
+        label: strength >= 60 ? "strong" : strength >= 30 ? "moderate" : "weak",
+      });
+    });
+  });
+
+  return relationships.sort((a, b) => b.strength - a.strength);
+}
+
+// ═══════════════════════════════════════════════════════════
 // CONTACT PRIORITIZATION (Pass 1: Who's worth a deep dive?)
 // ═══════════════════════════════════════════════════════════
 
@@ -538,6 +639,7 @@ export function runPipeline(chatText) {
     phoneSignals: extractPhoneSignals(parsedChat.members),
     timingPatterns: extractTimingPatterns(parsedChat.messages),
     emojiProfiles: extractEmojiProfile(parsedChat.messages),
+    relationshipGraph: buildRelationshipGraph(parsedChat),
   };
 
   return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals };
