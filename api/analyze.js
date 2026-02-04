@@ -83,6 +83,9 @@ CREATIVE MATCHING — Go beyond the obvious. Hunt for these non-obvious touchpoi
 
 The BEST connections feel like "how did you know?!" — not "well, duh." That's the Connex difference.
 
+TWO-PASS ANALYSIS:
+The chat has been pre-scanned and contacts have been PRIORITIZED. You'll receive a list of high-priority contacts — focus your deepest analysis on these people. For lower-priority contacts, a basic profile is fine. This ensures quality over quantity.
+
 ZERO GENERIC SUGGESTIONS. Every suggestion MUST have:
 1. A SPECIFIC reason unique to these two people — not "shared interests" but "you both quit BigTech to build in crypto and you're both in Bangkok this month"
 2. A SPECIFIC conversation starter — not "you have a lot in common" but "ask her about her experience scaling a team at Stripe — you're facing the exact same challenge"
@@ -104,7 +107,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { chatText, userProfile, enrichedUserProfile, deepSignals } = req.body;
+  const { chatText, userProfile, enrichedUserProfile, deepSignals, highPriorityContacts } = req.body;
 
   if (!chatText || typeof chatText !== "string") {
     return res.status(400).json({ error: "chatText is required" });
@@ -137,6 +140,8 @@ export default async function handler(req, res) {
             enrichedUserProfile ? `\n\nENRICHED USER PROFILE — The person running this analysis (scraped from their socials):\n${JSON.stringify(enrichedUserProfile, null, 2)}\n\nThis is a RICH profile built from their LinkedIn, X, and Instagram. Use ALL of this data to find non-obvious connections. Hunt for: shared schools, parallel career paths, complementary needs, lifestyle alignment, timing coincidences. PRIORITIZE connections relevant to THIS person.`
             : userProfile ? `\n\nADDITIONAL CONTEXT — The person running this analysis:\nName: ${userProfile.name || "Unknown"}\nLinkedIn: ${userProfile.linkedinUrl || "N/A"}\nX/Twitter: ${userProfile.twitterHandle || "N/A"}\nInstagram: ${userProfile.instagramHandle || "N/A"}\nCity: ${userProfile.city || "N/A"}\n\nWhen generating trust_activations, PRIORITIZE connections relevant to this person.`
             : ""
+          }${
+            highPriorityContacts?.length ? `\n\nHIGH-PRIORITY CONTACTS (focus your deepest analysis here):\n${highPriorityContacts.join(", ")}\n\nThese contacts were pre-scored as most likely to yield valuable connections. Build RICH profiles for these people. Basic profiles are fine for others.` : ""
           }${
             deepSignals ? `\n\nDEEP SIGNALS EXTRACTED FROM CHAT:\n${JSON.stringify(deepSignals, null, 2)}\n\nUse these signals for richer profiling:\n- Shared links reveal interests (Spotify=music taste, GitHub=tech, YouTube=content preferences)\n- Phone area codes reveal original/home cities\n- Timing patterns reveal timezone and lifestyle (night owl vs early bird)\n- Emoji usage reveals personality and communication style\n- Cross-reference these with message content for higher confidence profiles` : ""
           }\n\nCHAT EXPORT:\n${truncated}`,

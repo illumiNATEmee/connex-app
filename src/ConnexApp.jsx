@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile } from "./connex-engine.js";
+import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts } from "./connex-engine.js";
 
 // Engine imported from connex-engine.js — offline fallback
 // API endpoint at /api/analyze — Claude-powered Brain analysis
@@ -271,9 +271,15 @@ export default function ConnexApp() {
         emojiProfiles: extractEmojiProfile(parsedChat.messages),
       };
 
-      // Step 3: Analyze chat with enriched user context + deep signals
-      setProcessingStatus("🧠 Sending to Connex Brain...");
-      const analyzePayload = { chatText: text, userProfile, deepSignals };
+      // Step 3: Prioritize contacts (quick local scan)
+      setProcessingStatus("🎯 Prioritizing contacts...");
+      const localProfiles = enrichProfiles(parsedChat);
+      const prioritized = prioritizeContacts(localProfiles, userProfile, deepSignals);
+      const highPriority = prioritized.filter(p => p.tier === "deep_dive").map(p => p.name);
+
+      // Step 4: Analyze chat with enriched user context + deep signals + priorities
+      setProcessingStatus(`🧠 Deep-diving ${highPriority.length} high-priority contacts...`);
+      const analyzePayload = { chatText: text, userProfile, deepSignals, highPriorityContacts: highPriority };
       if (aggregatedProfile) {
         analyzePayload.enrichedUserProfile = aggregatedProfile;
       }

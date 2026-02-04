@@ -359,6 +359,89 @@ export function getDMStrategy(profiles) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// CONTACT PRIORITIZATION (Pass 1: Who's worth a deep dive?)
+// ═══════════════════════════════════════════════════════════
+
+export function prioritizeContacts(profiles, userProfile, deepSignals) {
+  // Score each contact on likelihood of meaningful connection
+  return profiles.map(profile => {
+    let priority = 0;
+    const signals = [];
+
+    // 1. Activity level — more messages = more data to work with
+    if (profile.activity_level === "high") { priority += 20; signals.push("Very active in group"); }
+    else if (profile.activity_level === "medium") { priority += 10; signals.push("Moderately active"); }
+    else { priority += 2; }
+
+    // 2. Social capital — mentioned by others = respected/valued
+    if (profile.mentioned_by?.length >= 3) { priority += 25; signals.push(`Referenced by ${profile.mentioned_by.length} people — high social capital`); }
+    else if (profile.mentioned_by?.length >= 1) { priority += 10; signals.push(`Referenced by ${profile.mentioned_by.length} people`); }
+
+    // 3. Interest overlap with user
+    if (userProfile) {
+      const userInterests = (userProfile.interests || []).map(i => i.toLowerCase());
+      const theirInterests = profile.interests?.flatMap(i => [i.category, ...(i.keywords || [])]) || [];
+      const overlap = userInterests.filter(ui => theirInterests.some(ti => ti.toLowerCase().includes(ui) || ui.includes(ti.toLowerCase())));
+      if (overlap.length > 0) {
+        priority += overlap.length * 10;
+        signals.push(`Shared interests: ${overlap.join(", ")}`);
+      }
+    }
+
+    // 4. Location proximity
+    if (userProfile?.city && profile.location?.primary) {
+      const userCity = normLoc(userProfile.city);
+      const theirCity = normLoc(profile.location.primary);
+      if (userCity && theirCity && userCity.toLowerCase() === theirCity.toLowerCase()) {
+        priority += 20;
+        signals.push(`Same city: ${userCity}`);
+      }
+    }
+
+    // 5. Shared links — people who share content are more interesting
+    if (deepSignals?.sharedLinks) {
+      const theirLinks = deepSignals.sharedLinks.filter(l => l.sender === profile.display_name);
+      if (theirLinks.length > 0) {
+        priority += theirLinks.length * 3;
+        const types = [...new Set(theirLinks.map(l => l.type).filter(t => t !== "other"))];
+        if (types.length > 0) signals.push(`Shares: ${types.join(", ")}`);
+      }
+    }
+
+    // 6. Connector potential — mentions many others = well-connected
+    if (profile.mentions?.length >= 3) {
+      priority += 10;
+      signals.push(`Connects with ${profile.mentions.length} members — potential bridge`);
+    }
+
+    // 7. Phone signals — if from same area/country
+    if (deepSignals?.phoneSignals) {
+      const phoneData = deepSignals.phoneSignals.find(p => p.member === profile.display_name);
+      if (phoneData?.originalCity) {
+        priority += 5;
+        signals.push(`Phone: ${phoneData.originalCity} area`);
+      }
+    }
+
+    // 8. Message count — minimum threshold for meaningful profiling
+    if (profile.message_count < 3) {
+      priority = Math.min(priority, 10);
+      signals.push("⚠️ Low messages — limited data for profiling");
+    }
+
+    return {
+      name: profile.display_name,
+      priority: Math.min(priority, 100),
+      tier: priority >= 40 ? "deep_dive" : priority >= 20 ? "worth_checking" : "low_priority",
+      signals,
+      messageCount: profile.message_count,
+      profile,
+    };
+  })
+  .sort((a, b) => b.priority - a.priority);
+}
+
+// ═══════════════════════════════════════════════════════════
 // 2ND DEGREE NETWORK MATCHING
 // ═══════════════════════════════════════════════════════════
 
