@@ -297,6 +297,36 @@ match_score = (
 
 ---
 
+## 📊 Profile Enrichment Sources
+
+### LinkedIn (Priority 1 — Built)
+- User pastes LinkedIn URL or profile text
+- Brain extracts: role, company, skills, education, experience
+- Infers: looking_for, offering, connection_hooks
+- **Power move:** Alumni networks + past company overlap = non-obvious connections
+- **API endpoint:** `/api/linkedin`
+
+### Future Sources (Priority 2+)
+- **X/Twitter** — interests, opinions, who they follow
+- **Google OAuth** — calendar (availability), contacts (network mapping)
+- **Spotify** — music taste for affinity matching
+- **Multi-chat upload** — cross-reference across groups to find hidden connectors
+- **Manual form** — quick onboarding wizard as fallback
+
+### Enrichment Pipeline
+```
+Upload chat → Profile everyone from messages
+    ↓
+Optional: Add LinkedIn URLs for key members
+    ↓
+Brain merges chat behavior + professional background
+    ↓
+DEEP matching: not just "both like UFC" but "both Stanford MBA,
+   one needs a CTO, the other just left Google, both in Bangkok"
+```
+
+---
+
 ## ❓ Open Questions
 
 - How to get calendar data? (Cal.com integration? Calendly?)
