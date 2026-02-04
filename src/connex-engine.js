@@ -50,6 +50,129 @@ export function parseWhatsAppText(textContent) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// DEEP SIGNAL EXTRACTORS (from WhatsApp chat data)
+// ═══════════════════════════════════════════════════════════
+
+// Extract all URLs shared in messages
+export function extractSharedLinks(messages) {
+  const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/gi;
+  const links = [];
+  messages.forEach(msg => {
+    const urls = msg.text.match(urlPattern) || [];
+    urls.forEach(url => {
+      const domain = url.match(/https?:\/\/([^/]+)/)?.[1] || "";
+      let type = "other";
+      if (domain.includes("linkedin.com")) type = "linkedin";
+      else if (domain.includes("twitter.com") || domain.includes("x.com")) type = "twitter";
+      else if (domain.includes("instagram.com")) type = "instagram";
+      else if (domain.includes("spotify.com") || domain.includes("open.spotify")) type = "spotify";
+      else if (domain.includes("youtube.com") || domain.includes("youtu.be")) type = "youtube";
+      else if (domain.includes("github.com")) type = "github";
+      else if (domain.includes("medium.com") || domain.includes("substack.com")) type = "article";
+      else if (domain.includes("eventbrite.com") || domain.includes("lu.ma") || domain.includes("meetup.com")) type = "event";
+      else if (domain.includes("strava.com")) type = "fitness";
+      else if (domain.includes("goodreads.com")) type = "books";
+      links.push({ url, domain, type, sender: msg.sender, date: msg.date });
+    });
+  });
+  return links;
+}
+
+// Extract phone number signals
+export function extractPhoneSignals(members) {
+  const areaCodeMap = {
+    "212": "New York", "213": "Los Angeles", "310": "Los Angeles", "323": "Los Angeles",
+    "415": "San Francisco", "408": "San Jose", "650": "Silicon Valley",
+    "312": "Chicago", "305": "Miami", "206": "Seattle", "512": "Austin",
+    "617": "Boston", "202": "Washington DC", "404": "Atlanta", "214": "Dallas",
+    "713": "Houston", "303": "Denver", "503": "Portland", "775": "Reno/Nevada",
+    "805": "Santa Barbara", "818": "LA Valley", "406": "Montana",
+    "703": "Northern Virginia", "610": "Philadelphia", "412": "Pittsburgh",
+  };
+  const countryCodeMap = {
+    "+1": "US/Canada", "+44": "UK", "+852": "Hong Kong", "+65": "Singapore",
+    "+66": "Thailand", "+81": "Japan", "+86": "China", "+91": "India",
+    "+61": "Australia", "+49": "Germany", "+33": "France", "+971": "UAE",
+    "+886": "Taiwan", "+82": "South Korea",
+  };
+
+  return members.map(m => {
+    const signals = { originalCity: null, country: null, confidence: 0 };
+    const name = m.name || "";
+    
+    // Check for phone number in member name (common in WhatsApp exports)
+    const phoneMatch = name.match(/\+(\d{1,3})\s*\(?(\d{3})\)?/);
+    if (phoneMatch) {
+      const countryCode = "+" + phoneMatch[1];
+      const areaCode = phoneMatch[2];
+      if (countryCodeMap[countryCode]) {
+        signals.country = countryCodeMap[countryCode];
+        signals.confidence += 0.3;
+      }
+      if (areaCodeMap[areaCode]) {
+        signals.originalCity = areaCodeMap[areaCode];
+        signals.confidence += 0.4;
+      }
+    }
+    return { member: name, ...signals };
+  });
+}
+
+// Extract timing patterns → timezone and behavior
+export function extractTimingPatterns(messages) {
+  const memberTimings = {};
+  messages.forEach(msg => {
+    if (!memberTimings[msg.sender]) memberTimings[msg.sender] = { hours: [], days: [] };
+    const timeMatch = msg.time?.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+    if (timeMatch) {
+      let hour = parseInt(timeMatch[1]);
+      if (timeMatch[4]?.toUpperCase() === "PM" && hour !== 12) hour += 12;
+      if (timeMatch[4]?.toUpperCase() === "AM" && hour === 12) hour = 0;
+      memberTimings[msg.sender].hours.push(hour);
+    }
+  });
+
+  return Object.entries(memberTimings).map(([name, data]) => {
+    const avgHour = data.hours.reduce((a, b) => a + b, 0) / data.hours.length;
+    const peakHours = data.hours.sort((a, b) => a - b);
+    const isNightOwl = peakHours.filter(h => h >= 22 || h <= 4).length > peakHours.length * 0.3;
+    const isEarlyBird = peakHours.filter(h => h >= 5 && h <= 8).length > peakHours.length * 0.3;
+    
+    return {
+      name,
+      avgHour: Math.round(avgHour),
+      peakRange: `${peakHours[0] || 0}:00 - ${peakHours[peakHours.length - 1] || 23}:00`,
+      style: isNightOwl ? "night_owl" : isEarlyBird ? "early_bird" : "regular",
+      messageCount: data.hours.length,
+    };
+  });
+}
+
+// Extract emoji usage → personality fingerprint
+export function extractEmojiProfile(messages) {
+  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu;
+  const memberEmojis = {};
+  
+  messages.forEach(msg => {
+    const emojis = msg.text.match(emojiRegex) || [];
+    if (!memberEmojis[msg.sender]) memberEmojis[msg.sender] = {};
+    emojis.forEach(e => {
+      memberEmojis[msg.sender][e] = (memberEmojis[msg.sender][e] || 0) + 1;
+    });
+  });
+
+  return Object.entries(memberEmojis).map(([name, emojis]) => {
+    const sorted = Object.entries(emojis).sort((a, b) => b[1] - a[1]);
+    return {
+      name,
+      topEmojis: sorted.slice(0, 5).map(([e, c]) => ({ emoji: e, count: c })),
+      totalEmojis: sorted.reduce((sum, [_, c]) => sum + c, 0),
+      emojiDensity: sorted.reduce((sum, [_, c]) => sum + c, 0) / (messages.filter(m => m.sender === name).length || 1),
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // EXTRACTORS
 // ═══════════════════════════════════════════════════════════
 
@@ -325,5 +448,14 @@ export function runPipeline(chatText) {
   const analysis = analyzeNetwork(profiles);
   const suggestions = generateSuggestions(profiles);
   const dmStrategy = getDMStrategy(profiles);
-  return { parsedChat, profiles, analysis, suggestions, dmStrategy };
+
+  // Deep signal extraction
+  const deepSignals = {
+    sharedLinks: extractSharedLinks(parsedChat.messages),
+    phoneSignals: extractPhoneSignals(parsedChat.members),
+    timingPatterns: extractTimingPatterns(parsedChat.messages),
+    emojiProfiles: extractEmojiProfile(parsedChat.messages),
+  };
+
+  return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals };
 }

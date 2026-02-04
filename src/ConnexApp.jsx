@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy } from "./connex-engine.js";
+import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile } from "./connex-engine.js";
 
 // Engine imported from connex-engine.js — offline fallback
 // API endpoint at /api/analyze — Claude-powered Brain analysis
@@ -262,9 +262,18 @@ export default function ConnexApp() {
         }
       }
 
-      // Step 2: Analyze chat with enriched user context
+      // Step 2: Extract deep signals from chat
+      setProcessingStatus("🔍 Extracting deep signals...");
+      const deepSignals = {
+        sharedLinks: extractSharedLinks(parsedChat.messages),
+        phoneSignals: extractPhoneSignals(parsedChat.members),
+        timingPatterns: extractTimingPatterns(parsedChat.messages),
+        emojiProfiles: extractEmojiProfile(parsedChat.messages),
+      };
+
+      // Step 3: Analyze chat with enriched user context + deep signals
       setProcessingStatus("🧠 Sending to Connex Brain...");
-      const analyzePayload = { chatText: text, userProfile };
+      const analyzePayload = { chatText: text, userProfile, deepSignals };
       if (aggregatedProfile) {
         analyzePayload.enrichedUserProfile = aggregatedProfile;
       }
