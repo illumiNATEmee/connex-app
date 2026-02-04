@@ -201,6 +201,7 @@ export default function ConnexApp() {
   const [analysisMode, setAnalysisMode] = useState(null); // "claude" | "offline"
   const [processingStatus, setProcessingStatus] = useState("");
   const [groupInsights, setGroupInsights] = useState(null);
+  const [trustActivations, setTrustActivations] = useState([]);
 
   // Coordinator state
   const [coordActive, setCoordActive] = useState(false);
@@ -244,6 +245,7 @@ export default function ConnexApp() {
           const suggestions = generateSuggestions(profiles);
           const dmStrategy = getDMStrategy(profiles);
           setGroupInsights(data.group_insights || null);
+          setTrustActivations(data.trust_activations || []);
           setAnalysisMode("claude");
           setResults({ parsedChat, profiles, analysis, suggestions, dmStrategy });
           setProcessing(false);
@@ -265,6 +267,7 @@ export default function ConnexApp() {
       const dmStrategy = getDMStrategy(localProfiles);
       setAnalysisMode("offline");
       setGroupInsights(null);
+      setTrustActivations([]);
       setResults({ parsedChat, profiles: localProfiles, analysis, suggestions, dmStrategy });
       setProcessing(false);
       setProcessingStatus("");
@@ -369,7 +372,15 @@ export default function ConnexApp() {
   }
 
   const { parsedChat, profiles, analysis, suggestions, dmStrategy } = results;
-  const tabs = [{ id: "overview", l: "Overview" }, { id: "profiles", l: `Members (${profiles.length})` }, { id: "suggestions", l: `Meetups (${suggestions.length})` }, { id: "dm", l: "DM Strategy" }];
+  const warmIntros = trustActivations.filter(a => a.type === "warm_intro");
+  const groupActs = trustActivations.filter(a => a.type === "group_activation");
+  const tabs = [
+    { id: "overview", l: "Overview" },
+    { id: "connections", l: `🔗 Connections (${trustActivations.length})` },
+    { id: "profiles", l: `Members (${profiles.length})` },
+    { id: "suggestions", l: `Meetups (${suggestions.length})` },
+    { id: "dm", l: "DM Strategy" },
+  ];
 
   return (
     <div style={{ fontFamily: "'JetBrains Mono','SF Mono','Fira Code',monospace", background: C.bg, color: C.text, minHeight: "100vh" }}>
@@ -383,7 +394,7 @@ export default function ConnexApp() {
               </span>
             )}
           </div>
-          <button style={btnO} onClick={() => { setResults(null); setTab("overview"); clearCoord(); setAnalysisMode(null); setGroupInsights(null); }}>← New Analysis</button>
+          <button style={btnO} onClick={() => { setResults(null); setTab("overview"); clearCoord(); setAnalysisMode(null); setGroupInsights(null); setTrustActivations([]); }}>← New Analysis</button>
         </div>
 
         <div style={{ display: "flex", gap: 4, marginBottom: 24, padding: 4, background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
@@ -393,7 +404,7 @@ export default function ConnexApp() {
         {/* ════════════ OVERVIEW ════════════ */}
         {tab === "overview" && (<div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>
-            {[{ n: parsedChat.stats.totalMessages, l: "Messages", c: C.accent }, { n: parsedChat.stats.totalMembers, l: "Members", c: C.cyan }, { n: suggestions.length, l: "Meetup Ideas", c: C.green }, { n: new Set(profiles.map((p) => normLoc(p.location?.primary)).filter(Boolean)).size, l: "Cities", c: C.yellow }].map((s, i) => (
+            {[{ n: parsedChat.stats.totalMessages, l: "Messages", c: C.accent }, { n: parsedChat.stats.totalMembers, l: "Members", c: C.cyan }, { n: trustActivations.length || suggestions.length, l: trustActivations.length ? "Connections" : "Meetup Ideas", c: C.green }, { n: new Set(profiles.map((p) => normLoc(p.location?.primary)).filter(Boolean)).size, l: "Cities", c: C.yellow }].map((s, i) => (
               <div key={i} style={{ ...card, textAlign: "center", padding: "16px 14px", marginBottom: 0 }}>
                 <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: -1, color: s.c }}>{s.n}</div>
                 <div style={{ fontSize: 10, letterSpacing: 2, textTransform: "uppercase", color: C.textMuted, marginTop: 4 }}>{s.l}</div>
@@ -478,6 +489,86 @@ export default function ConnexApp() {
                 </div>
                 <button style={btnG} onClick={() => handleUseSuggestion(suggestions[0])}>Use This →</button>
               </div>
+            </div>
+          )}
+        </div>)}
+
+        {/* ════════════ CONNECTIONS (Trust Activations) ════════════ */}
+        {tab === "connections" && (<div>
+          {trustActivations.length === 0 ? (
+            <div style={{ ...card, textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🧠</div>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Brain AI Required</div>
+              <div style={{ fontSize: 12, color: C.textMuted }}>Trust activations need the Claude Brain API. Deploy to Vercel with your ANTHROPIC_API_KEY to unlock this.</div>
+            </div>
+          ) : (
+            <div>
+              {warmIntros.length > 0 && (
+                <div>
+                  <div style={{ ...card, borderColor: C.accent + "40", background: C.accentSoft, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🤝 Warm Introductions</div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>People who should meet — the Brain found complementary interests, needs, or locations.</div>
+                  </div>
+                  {warmIntros.sort((a, b) => (b.score || 0) - (a.score || 0)).map((act, i) => (
+                    <div key={`intro-${i}`} style={card}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <span style={{ fontSize: 22 }}>🔗</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>
+                            {act.person_a} <span style={{ color: C.accent }}>↔</span> {act.person_b}
+                          </div>
+                          {act.connector && <div style={{ fontSize: 11, color: C.textMuted }}>via {act.connector}</div>}
+                        </div>
+                        {act.score && (
+                          <div style={{ padding: "4px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, background: act.score >= 70 ? C.greenSoft : act.score >= 40 ? C.yellowSoft : C.border, color: act.score >= 70 ? C.green : act.score >= 40 ? C.yellow : C.textMuted }}>{act.score}%</div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.text, marginBottom: 8, lineHeight: 1.6 }}>{act.why}</div>
+                      {act.conversation_starter && (
+                        <div style={{ fontSize: 11, color: C.cyan, marginBottom: 8 }}>💬 Starter: "{act.conversation_starter}"</div>
+                      )}
+                      {act.intro_message && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: C.textDim, marginBottom: 6 }}>Ready-to-send intro message</div>
+                            <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{act.intro_message}</div>
+                          </div>
+                          <button onClick={() => { navigator.clipboard.writeText(act.intro_message); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ ...btnO, marginTop: 8, fontSize: 11, padding: "6px 14px" }}>📋 Copy Message</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {groupActs.length > 0 && (
+                <div style={{ marginTop: warmIntros.length > 0 ? 24 : 0 }}>
+                  <div style={{ ...card, borderColor: C.green + "40", background: C.greenSoft, marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🎯 Group Activations</div>
+                    <div style={{ fontSize: 12, color: C.textMuted }}>Meetup suggestions based on shared interests and locations.</div>
+                  </div>
+                  {groupActs.map((act, i) => (
+                    <div key={`group-${i}`} style={card}>
+                      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>{act.activity}</div>
+                      <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>{act.why}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                        {(act.participants || []).map((p, j) => (
+                          <span key={j} style={{ padding: "3px 10px", borderRadius: 8, fontSize: 11, background: C.border, color: C.text }}>{p}</span>
+                        ))}
+                      </div>
+                      {act.poll_message && (
+                        <div>
+                          <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+                            <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: C.textDim, marginBottom: 6 }}>Ready-to-send poll</div>
+                            <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{act.poll_message}</div>
+                          </div>
+                          <button onClick={() => { navigator.clipboard.writeText(act.poll_message); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ ...btnO, marginTop: 8, fontSize: 11, padding: "6px 14px" }}>📋 Copy Poll</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>)}
