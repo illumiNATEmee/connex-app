@@ -235,14 +235,43 @@ export default function ConnexApp() {
 
     // Try Claude API first
     try {
-      setProcessingStatus("Sending to Connex Brain (Claude API)...");
-      const userProfile = (userName || userLinkedin || userTwitter || userInstagram || userCity) ? {
-        name: userName, linkedinUrl: userLinkedin, twitterHandle: userTwitter, instagramHandle: userInstagram, city: userCity,
-      } : undefined;
+      // Step 1: Aggregate user profile from social sources (if provided)
+      let userProfile = undefined;
+      let aggregatedProfile = null;
+      if (userName || userLinkedin || userTwitter || userInstagram || userCity) {
+        userProfile = { name: userName, linkedinUrl: userLinkedin, twitterHandle: userTwitter, instagramHandle: userInstagram, city: userCity };
+
+        if (userLinkedin || userTwitter || userInstagram) {
+          setProcessingStatus("🧬 Scraping your social profiles...");
+          try {
+            const aggRes = await fetch("/api/aggregate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                linkedinUrl: userLinkedin || undefined,
+                twitterHandle: userTwitter || undefined,
+                instagramHandle: userInstagram || undefined,
+              }),
+            });
+            if (aggRes.ok) {
+              const aggData = await aggRes.json();
+              aggregatedProfile = aggData.profile;
+              setProcessingStatus("🧬 Profile enriched! Analyzing chat...");
+            }
+          } catch (_) { /* aggregation failed — continue without it */ }
+        }
+      }
+
+      // Step 2: Analyze chat with enriched user context
+      setProcessingStatus("🧠 Sending to Connex Brain...");
+      const analyzePayload = { chatText: text, userProfile };
+      if (aggregatedProfile) {
+        analyzePayload.enrichedUserProfile = aggregatedProfile;
+      }
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatText: text, userProfile }),
+        body: JSON.stringify(analyzePayload),
       });
 
       if (res.ok) {
