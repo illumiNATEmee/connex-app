@@ -613,7 +613,12 @@ export default function ConnexApp() {
                             <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: 1, color: C.textDim, marginBottom: 6 }}>Ready-to-send intro message</div>
                             <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{act.intro_message}</div>
                           </div>
-                          <button onClick={() => { navigator.clipboard.writeText(act.intro_message); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ ...btnO, marginTop: 8, fontSize: 11, padding: "6px 14px" }}>📋 Copy Message</button>
+                          <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center" }}>
+                            <button onClick={() => { navigator.clipboard.writeText(act.intro_message); setCopied(true); setTimeout(() => setCopied(false), 2000); }} style={{ ...btnO, fontSize: 11, padding: "6px 14px" }}>📋 Copy Message</button>
+                            <span style={{ fontSize: 11, color: C.textDim, marginLeft: "auto" }}>Did you connect?</span>
+                            <button onClick={() => {}} style={{ background: "none", border: `1px solid ${C.green}30`, borderRadius: 6, padding: "4px 8px", fontSize: 14, cursor: "pointer" }}>👍</button>
+                            <button onClick={() => {}} style={{ background: "none", border: `1px solid ${C.red}30`, borderRadius: 6, padding: "4px 8px", fontSize: 14, cursor: "pointer" }}>👎</button>
+                          </div>
                         </div>
                       )}
                     </div>
