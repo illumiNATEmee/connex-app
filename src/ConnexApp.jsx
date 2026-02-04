@@ -203,6 +203,12 @@ export default function ConnexApp() {
   const [groupInsights, setGroupInsights] = useState(null);
   const [trustActivations, setTrustActivations] = useState([]);
 
+  // User profile state (optional enrichment)
+  const [userLinkedin, setUserLinkedin] = useState("");
+  const [userTwitter, setUserTwitter] = useState("");
+  const [userName, setUserName] = useState("");
+  const [userCity, setUserCity] = useState("");
+
   // Coordinator state
   const [coordActive, setCoordActive] = useState(false);
   const [coordActId, setCoordActId] = useState(null);
@@ -229,10 +235,13 @@ export default function ConnexApp() {
     // Try Claude API first
     try {
       setProcessingStatus("Sending to Connex Brain (Claude API)...");
+      const userProfile = (userName || userLinkedin || userTwitter || userCity) ? {
+        name: userName, linkedinUrl: userLinkedin, twitterHandle: userTwitter, city: userCity,
+      } : undefined;
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatText: text }),
+        body: JSON.stringify({ chatText: text, userProfile }),
       });
 
       if (res.ok) {
@@ -335,9 +344,22 @@ export default function ConnexApp() {
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 20px" }}>
           <div style={{ textAlign: "center", padding: "40px 0 24px" }}>
             <div style={{ fontSize: 13, letterSpacing: 6, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>▲ Connex</div>
-            <h1 style={{ fontSize: 28, fontWeight: 700, margin: "8px 0", letterSpacing: -0.5 }}>Group Chat Intelligence</h1>
-            <p style={{ fontSize: 13, color: C.textMuted }}>Upload a WhatsApp export → get meetup suggestions & coordination tools</p>
+            <h1 style={{ fontSize: 28, fontWeight: 700, margin: "8px 0", letterSpacing: -0.5 }}>Unlock Your Network</h1>
+            <p style={{ fontSize: 13, color: C.textMuted }}>Upload a WhatsApp chat → discover connections you didn't know existed</p>
           </div>
+          {/* ─── YOUR PROFILE (optional) ─── */}
+          <div style={{ ...card, marginBottom: 20, padding: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🧬 Your Profile <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted }}>(optional — makes connections smarter)</span></div>
+            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14 }}>The Brain uses this to find connections relevant to YOU.</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Your name" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userCity} onChange={(e) => setUserCity(e.target.value)} placeholder="Your city (e.g. Bangkok)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userLinkedin} onChange={(e) => setUserLinkedin(e.target.value)} placeholder="LinkedIn URL" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userTwitter} onChange={(e) => setUserTwitter(e.target.value)} placeholder="X handle (e.g. @username)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+            </div>
+          </div>
+
+          {/* ─── FILE UPLOAD ─── */}
           <div
             style={{ border: `2px dashed ${dragging ? C.accent : C.border}`, borderRadius: 12, padding: "48px 24px", textAlign: "center", cursor: "pointer", background: dragging ? C.accentSoft : C.card }}
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
@@ -357,7 +379,7 @@ export default function ConnexApp() {
           <div style={{ ...card, marginTop: 32, padding: 24 }}>
             <div style={secTitle}>How it works</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 20 }}>
-              {[{ i: "📁", t: "Upload", d: "Drop your WhatsApp .txt export" }, { i: "🧠", t: "Analyze", d: "Find interests, locations & roles" }, { i: "🎯", t: "Suggest", d: "Get tailored meetup ideas" }, { i: "📋", t: "Coordinate", d: "Generate & copy poll messages" }].map((s, idx) => (
+              {[{ i: "📁", t: "Upload", d: "Drop a WhatsApp group export" }, { i: "🧠", t: "Brain AI", d: "Profiles everyone from their messages" }, { i: "🔗", t: "Connect", d: "Finds who should meet & why" }, { i: "📋", t: "Activate", d: "Copy intro messages & send" }].map((s, idx) => (
                 <div key={idx} style={{ textAlign: "center" }}>
                   <div style={{ fontSize: 24, marginBottom: 8 }}>{s.i}</div>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{s.t}</div>

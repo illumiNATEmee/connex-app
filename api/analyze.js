@@ -84,11 +84,14 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { chatText } = req.body;
+  const { chatText, userProfile } = req.body;
 
   if (!chatText || typeof chatText !== "string") {
     return res.status(400).json({ error: "chatText is required" });
   }
+
+  // userProfile is optional — enriched data from LinkedIn/X to improve matching
+  // { linkedinUrl, twitterHandle, name, ... }
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: "ANTHROPIC_API_KEY not configured" });
@@ -110,7 +113,9 @@ export default async function handler(req, res) {
       messages: [
         {
           role: "user",
-          content: `Analyze this WhatsApp group chat export and return rich structured profiles for every member:\n\n${truncated}`,
+          content: `Analyze this WhatsApp group chat export and return rich structured profiles for every member.${
+            userProfile ? `\n\nADDITIONAL CONTEXT — The person running this analysis:\nName: ${userProfile.name || "Unknown"}\nLinkedIn: ${userProfile.linkedinUrl || "N/A"}\nX/Twitter: ${userProfile.twitterHandle || "N/A"}\nCity: ${userProfile.city || "N/A"}\nInterests: ${userProfile.interests || "N/A"}\n\nWhen generating trust_activations, PRIORITIZE connections relevant to this person. Who should THEY meet from this group?` : ""
+          }\n\nCHAT EXPORT:\n${truncated}`,
         },
       ],
     });
