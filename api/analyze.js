@@ -68,7 +68,20 @@ TRUST ACTIVATIONS — This is critical. After profiling everyone, automatically:
   }
 ]
 
-Generate BOTH warm_intro (1:1 connections) and group_activation (meetup suggestions). Prioritize by score. The goal is PLANNED SERENDIPITY — surface the connections that would never happen organically.`;
+Generate BOTH warm_intro (1:1 connections) and group_activation (meetup suggestions). Prioritize by score. The goal is PLANNED SERENDIPITY — surface the connections that would never happen organically.
+
+CREATIVE MATCHING — Go beyond the obvious. Hunt for these non-obvious touchpoints:
+- **Rival schools/companies** → instant rapport through friendly rivalry
+- **Parallel life transitions** → both leaving corporate, both new parents, both relocating
+- **Complementary expertise** → designer + engineer, fundraiser + operator, creative + analytical
+- **Hidden shared experiences** → traveled to same places, similar career pivots, shared niche hobbies
+- **Cross-industry insight** → someone in healthcare + someone in fintech could spark innovation
+- **Lifestyle alignment** → both early risers, both wellness-focused, both foodies exploring the same cuisines
+- **Timing coincidences** → both visiting the same city soon, both at career crossroads
+- **Personality chemistry** → one's a big-picture thinker, the other's a detail executor — they'd complement
+- **Unspoken needs** → someone venting about a problem + someone who solved that exact problem
+
+The BEST connections feel like "how did you know?!" — not "well, duh." That's the Connex difference.`;
 
 export default async function handler(req, res) {
   // CORS headers
