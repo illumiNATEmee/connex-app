@@ -1,14 +1,117 @@
 import { useState, useCallback, useRef } from "react";
-import { runPipeline, normLoc } from "./connex-engine.js";
+import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy } from "./connex-engine.js";
 
-// Engine imported from connex-engine.js — single source of truth
-// Functions available: runPipeline, normLoc
+// Engine imported from connex-engine.js — offline fallback
+// API endpoint at /api/analyze — Claude-powered Brain analysis
 
-/* ═══════════════════════════════════════════════════════════
-   CONNEX ENGINE — REMOVED (now imported from connex-engine.js)
-   ═══════════════════════════════════════════════════════════ */
+// ═══════════════════════════════════════════════════════════
+// BRAIN → ENGINE BRIDGE
+// ═══════════════════════════════════════════════════════════
+// Converts Claude Brain profiles into the format the existing
+// UI + suggestion/network/DM pipeline expects.
 
-/* Engine code now lives in connex-engine.js */
+function bridgeBrainProfiles(brainProfiles, parsedChat) {
+  const INTEREST_CATEGORIES = ["sports","crypto","food","wellness","tech","business","travel","music"];
+
+  return brainProfiles.map((bp) => {
+    // Find matching parsed member for message counts
+    const member = parsedChat.members.find((m) => m.name === bp.name) || {};
+
+    // Convert Brain interests array to engine format [{category, keywords, confidence}]
+    const interests = [];
+    const brainInterests = bp.interests || [];
+    INTEREST_CATEGORIES.forEach((cat) => {
+      const matches = brainInterests.filter((i) => i.toLowerCase().includes(cat) || cat.includes(i.toLowerCase().split(" ")[0]));
+      if (matches.length > 0) {
+        interests.push({ category: cat, keywords: matches, confidence: 0.8 });
+      }
+    });
+    // Add any interests that didn't match a category as their own
+    const mappedKeywords = new Set(interests.flatMap((i) => i.keywords));
+    const unmapped = brainInterests.filter((i) => !mappedKeywords.has(i));
+    if (unmapped.length > 0 && interests.length === 0) {
+      // Best-effort: map to "tech" if AI/startup related, etc.
+      interests.push({ category: "general", keywords: unmapped, confidence: 0.7 });
+    }
+
+    // Convert Brain affinities object to engine format
+    const affinities = {};
+    if (bp.affinities) {
+      if (bp.affinities.sports?.length) affinities.sports_teams = bp.affinities.sports;
+      if (bp.affinities.food?.length) affinities.food_types = bp.affinities.food;
+      if (bp.affinities.other?.length) affinities.activities = bp.affinities.other;
+    }
+
+    // Determine activity level from Brain score
+    const score = bp.activity_score ?? 0;
+    const activity_level = score > 0.6 ? "high" : score > 0.3 ? "medium" : "low";
+
+    // Location bridge
+    const location = {
+      cities: bp.location?.city ? [bp.location.city.toLowerCase()] : [],
+      mentions: [],
+      confidence: bp.location?.city ? 0.9 : 0,
+      primary: bp.location?.city?.toLowerCase() || null,
+    };
+
+    return {
+      // Standard engine fields
+      id: bp.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"),
+      source_name: bp.name,
+      display_name: bp.name,
+      message_count: member.messageCount || 0,
+      first_seen: member.firstSeen || null,
+      last_seen: member.lastSeen || null,
+      location,
+      interests,
+      affinities,
+      activity_level,
+      mentions: member.messages ? [] : [], // Will be filled by engine if needed
+      mentioned_by: [],
+      // Brain-enriched fields (new)
+      brain: {
+        role: bp.role,
+        company: bp.company,
+        industry: bp.industry,
+        expertise: bp.expertise || [],
+        looking_for: bp.looking_for || [],
+        offering: bp.offering || [],
+        personality_notes: bp.personality_notes,
+        context_sources: bp.context_sources || [],
+        location_detail: bp.location || {},
+      },
+    };
+  });
+}
+
+// Fill in mentions from the parsed chat for Brain profiles
+function fillMentions(profiles, parsedChat) {
+  const allMessages = parsedChat.messages;
+  profiles.forEach((p) => {
+    const memberMsgs = allMessages.filter((m) => m.sender === p.display_name);
+    const otherNames = [...new Set(allMessages.map((m) => m.sender))].filter((n) => n !== p.display_name);
+    const mentions = new Set();
+    memberMsgs.forEach((msg) => {
+      const text = msg.text.toLowerCase();
+      otherNames.forEach((name) => {
+        const first = name.toLowerCase().split(" ")[0];
+        if (first.length > 2 && text.includes(first)) mentions.add(name);
+      });
+    });
+    p.mentions = [...mentions];
+
+    const mentionedBy = new Set();
+    const nameVariations = [p.display_name.toLowerCase(), p.display_name.toLowerCase().split(" ")[0]].filter((n) => n.length > 2);
+    allMessages.forEach((msg) => {
+      if (msg.sender !== p.display_name) {
+        const text = msg.text.toLowerCase();
+        if (nameVariations.some((n) => text.includes(n))) mentionedBy.add(msg.sender);
+      }
+    });
+    p.mentioned_by = [...mentionedBy];
+  });
+  return profiles;
+}
 
 // ═══════════════════════════════════════════════════════════
 // ACTIVITY COORDINATOR
@@ -95,6 +198,9 @@ export default function ConnexApp() {
   const [processing, setProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expProfile, setExpProfile] = useState(null);
+  const [analysisMode, setAnalysisMode] = useState(null); // "claude" | "offline"
+  const [processingStatus, setProcessingStatus] = useState("");
+  const [groupInsights, setGroupInsights] = useState(null);
 
   // Coordinator state
   const [coordActive, setCoordActive] = useState(false);
@@ -107,9 +213,63 @@ export default function ConnexApp() {
   const fileRef = useRef(null);
   const coordRef = useRef(null);
 
-  const processFile = useCallback((text) => {
+  const processFile = useCallback(async (text) => {
     setProcessing(true);
-    setTimeout(() => { const r = runPipeline(text); setResults(r); setProcessing(false); if (r) setTab("overview"); }, 300);
+    setProcessingStatus("Parsing messages...");
+
+    // Always run the local parser first for message stats
+    const parsedChat = parseWhatsAppText(text);
+    if (parsedChat.stats.totalMessages === 0) {
+      setProcessing(false);
+      setProcessingStatus("");
+      return;
+    }
+
+    // Try Claude API first
+    try {
+      setProcessingStatus("Sending to Connex Brain (Claude API)...");
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatText: text }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.profiles && data.profiles.length > 0) {
+          setProcessingStatus("Building rich profiles...");
+          let profiles = bridgeBrainProfiles(data.profiles, parsedChat);
+          profiles = fillMentions(profiles, parsedChat);
+          const analysis = analyzeNetwork(profiles);
+          const suggestions = generateSuggestions(profiles);
+          const dmStrategy = getDMStrategy(profiles);
+          setGroupInsights(data.group_insights || null);
+          setAnalysisMode("claude");
+          setResults({ parsedChat, profiles, analysis, suggestions, dmStrategy });
+          setProcessing(false);
+          setProcessingStatus("");
+          setTab("overview");
+          return;
+        }
+      }
+    } catch (_) {
+      // API unavailable — fall through to offline
+    }
+
+    // Fallback: run local engine
+    setProcessingStatus("Running local analysis...");
+    setTimeout(() => {
+      const localProfiles = enrichProfiles(parsedChat);
+      const analysis = analyzeNetwork(localProfiles);
+      const suggestions = generateSuggestions(localProfiles);
+      const dmStrategy = getDMStrategy(localProfiles);
+      setAnalysisMode("offline");
+      setGroupInsights(null);
+      setResults({ parsedChat, profiles: localProfiles, analysis, suggestions, dmStrategy });
+      setProcessing(false);
+      setProcessingStatus("");
+      setTab("overview");
+    }, 300);
   }, []);
 
   const handleFile = useCallback((file) => {
@@ -185,7 +345,7 @@ export default function ConnexApp() {
             <input ref={fileRef} type="file" accept=".txt,.text" style={{ display: "none" }} onChange={(e) => handleFile(e.target.files[0])} />
             <div style={{ fontSize: 36, marginBottom: 12 }}>{processing ? "⏳" : "📁"}</div>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>{processing ? "Analyzing chat..." : "Drop WhatsApp export here"}</div>
-            <div style={{ fontSize: 12, color: C.textMuted }}>{processing ? "Parsing messages, enriching profiles..." : ".txt file · WhatsApp → Export Chat → Without Media"}</div>
+            <div style={{ fontSize: 12, color: C.textMuted }}>{processing ? (processingStatus || "Parsing messages, enriching profiles...") : ".txt file · WhatsApp → Export Chat → Without Media"}</div>
           </div>
           <div style={{ textAlign: "center", marginTop: 20 }}>
             <span style={{ fontSize: 12, color: C.textDim, marginRight: 12 }}>No chat handy?</span>
@@ -215,8 +375,15 @@ export default function ConnexApp() {
     <div style={{ fontFamily: "'JetBrains Mono','SF Mono','Fira Code',monospace", background: C.bg, color: C.text, minHeight: "100vh" }}>
       <div style={{ maxWidth: 960, margin: "0 auto", padding: "24px 20px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <div style={{ fontSize: 11, letterSpacing: 6, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>▲ Connex</div>
-          <button style={btnO} onClick={() => { setResults(null); setTab("overview"); clearCoord(); }}>← New Analysis</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ fontSize: 11, letterSpacing: 6, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>▲ Connex</div>
+            {analysisMode && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 10, fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", background: analysisMode === "claude" ? C.greenSoft : C.yellowSoft, color: analysisMode === "claude" ? C.green : C.yellow, border: `1px solid ${analysisMode === "claude" ? C.green + "30" : C.yellow + "30"}` }}>
+                {analysisMode === "claude" ? "Brain AI" : "Offline"}
+              </span>
+            )}
+          </div>
+          <button style={btnO} onClick={() => { setResults(null); setTab("overview"); clearCoord(); setAnalysisMode(null); setGroupInsights(null); }}>← New Analysis</button>
         </div>
 
         <div style={{ display: "flex", gap: 4, marginBottom: 24, padding: 4, background: C.card, borderRadius: 10, border: `1px solid ${C.border}` }}>
@@ -247,6 +414,50 @@ export default function ConnexApp() {
               ))}
             </div>
           </div>
+          {groupInsights && (
+            <div style={{ ...card, marginTop: 16, borderColor: C.green + "30", background: C.greenSoft }}>
+              <div style={secTitle}>Brain Insights</div>
+              {groupInsights.key_themes?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: C.textDim, marginBottom: 6, fontWeight: 600 }}>Key Themes</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{groupInsights.key_themes.map((t, i) => <span key={i} style={tag(C.greenSoft, C.green, C.green + "30")}>{t}</span>)}</div>
+                </div>
+              )}
+              {groupInsights.geographic_clusters?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: C.textDim, marginBottom: 6, fontWeight: 600 }}>Geographic Clusters</div>
+                  {groupInsights.geographic_clusters.map((gc, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.textMuted, marginBottom: 2 }}>
+                      <span style={{ color: C.cyan, marginRight: 6 }}>📍</span>
+                      {typeof gc === "string" ? gc : `${gc.city || gc.location}: ${(gc.members || []).join(", ")}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {groupInsights.potential_matches?.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: C.textDim, marginBottom: 6, fontWeight: 600 }}>Potential Matches</div>
+                  {groupInsights.potential_matches.map((m, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>
+                      <span style={{ color: C.accent, marginRight: 6 }}>↔</span>
+                      {typeof m === "string" ? m : `${(m.members || m.people || []).join(" + ")}: ${m.reason || m.basis || ""}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {groupInsights.suggested_activations?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: C.textDim, marginBottom: 6, fontWeight: 600 }}>Suggested Activations</div>
+                  {groupInsights.suggested_activations.map((a, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.textMuted, marginBottom: 4 }}>
+                      <span style={{ color: C.orange, marginRight: 6 }}>→</span>
+                      {typeof a === "string" ? a : `${a.type || a.activity}: ${a.description || a.reason || (a.participants || []).join(", ")}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {analysis.hubs.length > 0 && (
             <div style={card}>
               <div style={secTitle}>Network Hubs</div>
@@ -285,7 +496,7 @@ export default function ConnexApp() {
                       <ActivityBadge level={p.activity_level} />
                     </div>
                     <div style={{ fontSize: 11, color: C.textMuted, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                      <span>{p.message_count} msgs</span>{loc && <span>📍 {loc}</span>}{p.mentioned_by.length > 0 && <span>↗ by {p.mentioned_by.length}</span>}
+                      <span>{p.message_count} msgs</span>{loc && <span>📍 {loc}</span>}{p.brain?.role && <span>{p.brain.role}{p.brain.company ? ` @ ${p.brain.company}` : ""}</span>}{p.mentioned_by.length > 0 && <span>↗ by {p.mentioned_by.length}</span>}
                     </div>
                   </div>
                   <span style={{ fontSize: 11, color: C.textDim }}>{exp ? "▲" : "▼"}</span>
@@ -293,10 +504,49 @@ export default function ConnexApp() {
                 {p.interests.length > 0 && <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 4 }}>{p.interests.map((int, j) => <span key={j} style={tag(C.border, C.textMuted)}>{IE[int.category] || "📋"} {int.category}</span>)}</div>}
                 {exp && (
                   <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+                    {/* Brain-enriched identity row */}
+                    {p.brain && (p.brain.role || p.brain.company) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                        {p.brain.role && <span style={tag(C.accentSoft, C.accent, C.accent + "30")}>{p.brain.role}</span>}
+                        {p.brain.company && <span style={tag(C.cyanSoft, C.cyan, C.cyan + "30")}>{p.brain.company}</span>}
+                        {p.brain.industry && <span style={tag(C.border, C.textMuted)}>{p.brain.industry}</span>}
+                      </div>
+                    )}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
                       <div><div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Active Period</div><div>{p.first_seen} → {p.last_seen}</div></div>
                       {Object.keys(p.affinities).length > 0 && <div><div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Affinities</div><div>{Object.values(p.affinities).flat().join(", ")}</div></div>}
                     </div>
+                    {/* Brain: Expertise */}
+                    {p.brain?.expertise?.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Expertise</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{p.brain.expertise.map((e, j) => <span key={j} style={tag(C.greenSoft, C.green, C.green + "30")}>{e}</span>)}</div>
+                      </div>
+                    )}
+                    {/* Brain: Looking For / Offering */}
+                    {(p.brain?.looking_for?.length > 0 || p.brain?.offering?.length > 0) && (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+                        {p.brain?.looking_for?.length > 0 && (
+                          <div>
+                            <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Looking For</div>
+                            {p.brain.looking_for.map((l, j) => <div key={j} style={{ fontSize: 11, color: C.yellow, marginBottom: 2 }}>→ {l}</div>)}
+                          </div>
+                        )}
+                        {p.brain?.offering?.length > 0 && (
+                          <div>
+                            <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Can Offer</div>
+                            {p.brain.offering.map((o, j) => <div key={j} style={{ fontSize: 11, color: C.green, marginBottom: 2 }}>→ {o}</div>)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {/* Brain: Personality */}
+                    {p.brain?.personality_notes && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Personality Read</div>
+                        <div style={{ fontSize: 11, color: C.textMuted, fontStyle: "italic", lineHeight: 1.5 }}>{p.brain.personality_notes}</div>
+                      </div>
+                    )}
                     {p.mentions.length > 0 && <div style={{ marginTop: 12 }}><div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Mentions</div><div style={{ fontSize: 12 }}>{p.mentions.join(", ")}</div></div>}
                     {p.mentioned_by.length > 0 && <div style={{ marginTop: 8 }}><div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>Mentioned By</div><div style={{ fontSize: 12 }}>{p.mentioned_by.join(", ")}</div></div>}
                     {p.interests.length > 0 && <div style={{ marginTop: 12 }}><div style={{ color: C.textDim, fontSize: 10, letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>Interest Confidence</div>{p.interests.map((int, j) => <div key={j} style={{ marginBottom: 6 }}><div style={{ fontSize: 11, marginBottom: 3, color: C.textMuted }}>{IE[int.category]} {int.category} — {int.keywords.join(", ")}</div><ConfBar value={Math.round(int.confidence * 100)} /></div>)}</div>}
