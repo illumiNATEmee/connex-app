@@ -52,36 +52,55 @@ export default async function handler(req, res) {
   }
 
   let contentToAnalyze = profileText || "";
+  const cleanHandle = (handle || "").replace("@", "").trim();
+  const sources = [];
 
-  // Try to fetch public profile
-  if (!profileText && (twitterUrl || handle)) {
-    const url = twitterUrl || `https://x.com/${handle.replace("@", "")}`;
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        redirect: "follow",
-      });
+  if (!profileText && (twitterUrl || cleanHandle)) {
+    // Strategy 1: Try X.com directly
+    const urls = [
+      twitterUrl || `https://x.com/${cleanHandle}`,
+      `https://twitter.com/${cleanHandle}`,
+      // Strategy 2: Try syndication/embed API (often less restricted)
+      `https://syndication.twitter.com/srv/timeline-profile/screen-name/${cleanHandle}`,
+    ];
 
-      if (response.ok) {
-        const html = await response.text();
-        contentToAnalyze = html
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .slice(0, 50000);
-      }
-    } catch (e) {
-      if (!profileText) {
-        return res.status(422).json({
-          error: "Could not fetch X profile. Please paste the profile page text instead.",
-          needsPaste: true,
+    for (const url of urls) {
+      try {
+        const response = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+          redirect: "follow",
+          signal: AbortSignal.timeout(8000),
         });
+
+        if (response.ok) {
+          const html = await response.text();
+          const cleaned = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .slice(0, 50000);
+          
+          if (cleaned.length > 200) {
+            contentToAnalyze = cleaned;
+            sources.push(url);
+            break;
+          }
+        }
+      } catch (e) {
+        continue; // Try next URL
       }
+    }
+
+    // Strategy 3: If direct fetch failed, give Brain just the handle
+    // Claude can infer from common knowledge of public figures
+    if (!contentToAnalyze && cleanHandle) {
+      contentToAnalyze = `X/Twitter handle: @${cleanHandle}\n\nNote: Could not scrape the profile directly. Please use your knowledge of this public account if you recognize them, otherwise extract what you can from the handle and any context provided.`;
+      sources.push("handle-only");
     }
   }
 

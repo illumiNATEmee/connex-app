@@ -377,16 +377,27 @@ export default function ConnexApp() {
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: "8px 0", letterSpacing: -0.5 }}>Unlock Your Network</h1>
             <p style={{ fontSize: 13, color: C.textMuted }}>Upload a WhatsApp chat → discover connections you didn't know existed</p>
           </div>
-          {/* ─── YOUR PROFILE (optional) ─── */}
+          {/* ─── YOUR PROFILE ─── */}
           <div style={{ ...card, marginBottom: 20, padding: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🧬 Your Profile <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted }}>(optional — makes connections smarter)</span></div>
-            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14 }}>The Brain uses this to find connections relevant to YOU.</div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🧬 About You <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted }}>(helps find connections relevant to YOU)</span></div>
+            <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14 }}>The more you share, the smarter the suggestions. All data stays private.</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Your name" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
               <input value={userCity} onChange={(e) => setUserCity(e.target.value)} placeholder="Your city (e.g. Bangkok)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
-              <input value={userLinkedin} onChange={(e) => setUserLinkedin(e.target.value)} placeholder="LinkedIn URL" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
-              <input value={userTwitter} onChange={(e) => setUserTwitter(e.target.value)} placeholder="X handle (e.g. @username)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
-              <input value={userInstagram} onChange={(e) => setUserInstagram(e.target.value)} placeholder="Instagram (e.g. @username)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", gridColumn: "1 / -1" }} />
+              <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10 }}>
+                <div style={{ flex: 1, position: "relative" }}>
+                  <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>𝕏</span>
+                  <input value={userTwitter} onChange={(e) => setUserTwitter(e.target.value)} placeholder="X handle (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ flex: 1, position: "relative" }}>
+                  <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>in</span>
+                  <input value={userLinkedin} onChange={(e) => setUserLinkedin(e.target.value)} placeholder="LinkedIn URL" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                </div>
+              </div>
+              <div style={{ gridColumn: "1 / -1", position: "relative" }}>
+                <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>📷</span>
+                <input value={userInstagram} onChange={(e) => setUserInstagram(e.target.value)} placeholder="Instagram (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+              </div>
             </div>
           </div>
 
