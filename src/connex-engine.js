@@ -433,14 +433,55 @@ export function buildRelationshipGraph(parsedChat) {
       const mediaTotal = data.mediaShared + reverseData.mediaShared;
       const isBidirectional = data.replies > 0 && reverseData.replies > 0;
 
+      // Response speed — check time gaps between sequential messages
+      let responseSpeedScore = 0;
+      for (let i = 1; i < parsedChat.messages.length; i++) {
+        const prev = parsedChat.messages[i - 1];
+        const curr = parsedChat.messages[i];
+        if ((prev.sender === personA && curr.sender === personB) ||
+            (prev.sender === personB && curr.sender === personA)) {
+          // Parse times for rough gap estimation
+          const parseHour = (t) => {
+            const m = t?.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+            if (!m) return null;
+            let h = parseInt(m[1]);
+            if (m[4]?.toUpperCase() === "PM" && h !== 12) h += 12;
+            if (m[4]?.toUpperCase() === "AM" && h === 12) h = 0;
+            return h * 60 + parseInt(m[2]);
+          };
+          const t1 = parseHour(prev.time);
+          const t2 = parseHour(curr.time);
+          if (t1 !== null && t2 !== null) {
+            const gap = Math.abs(t2 - t1);
+            if (gap <= 5) responseSpeedScore += 3;      // Within 5 min = very engaged
+            else if (gap <= 30) responseSpeedScore += 1; // Within 30 min = normal
+          }
+        }
+      }
+
+      // Informal language detection (crude: emoji + lowercase + short msgs + slang)
+      const allMsgsA = parsedChat.messages.filter(m => m.sender === personA).map(m => m.text);
+      const allMsgsB = parsedChat.messages.filter(m => m.sender === personB).map(m => m.text);
+      const informalScore = (msgs) => {
+        let score = 0;
+        msgs.forEach(t => {
+          if (/😂|🤣|💀|lmao|lol|haha|omg|bruh|dude|bro/i.test(t)) score += 2;
+          if (t === t.toLowerCase() && t.length < 50) score += 0.5;
+        });
+        return score;
+      };
+      const informalityAB = informalScore(allMsgsA) + informalScore(allMsgsB);
+
       // Weighted score
       let strength = 0;
-      strength += Math.min(totalInteractions * 3, 30);          // Interaction volume (max 30)
-      strength += isBidirectional ? 15 : 0;                     // Two-way conversation (15)
-      strength += Math.min(avgDepth * 0.5, 15);                 // Message depth (max 15)
-      strength += Math.min(lateNightTotal * 5, 15);             // Late night = closeness (max 15)
-      strength += Math.min(mediaTotal * 4, 12);                 // Media sharing (max 12)
-      strength += Math.min((data.mentions + reverseData.mentions) * 3, 13); // Mentions (max 13)
+      strength += Math.min(totalInteractions * 3, 25);          // Interaction volume (max 25)
+      strength += isBidirectional ? 12 : 0;                     // Two-way conversation (12)
+      strength += Math.min(avgDepth * 0.5, 12);                 // Message depth (max 12)
+      strength += Math.min(lateNightTotal * 5, 12);             // Late night = closeness (max 12)
+      strength += Math.min(mediaTotal * 4, 10);                 // Media sharing (max 10)
+      strength += Math.min((data.mentions + reverseData.mentions) * 3, 10); // Mentions (max 10)
+      strength += Math.min(responseSpeedScore, 10);             // Response speed (max 10)
+      strength += Math.min(informalityAB, 9);                   // Informal/casual tone (max 9)
 
       relationships.push({
         personA,
@@ -451,6 +492,8 @@ export function buildRelationshipGraph(parsedChat) {
         avgMessageDepth: Math.round(avgDepth),
         lateNightMessages: lateNightTotal,
         mediaShared: mediaTotal,
+        responseSpeed: responseSpeedScore > 5 ? "fast" : responseSpeedScore > 2 ? "normal" : "slow",
+        informality: informalityAB > 5 ? "casual" : "formal",
         label: strength >= 60 ? "strong" : strength >= 30 ? "moderate" : "weak",
       });
     });

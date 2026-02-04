@@ -83,6 +83,33 @@ CREATIVE MATCHING — Go beyond the obvious. Hunt for these non-obvious touchpoi
 
 The BEST connections feel like "how did you know?!" — not "well, duh." That's the Connex difference.
 
+RELATIONSHIP DIMENSIONS — Score every connection on ALL four dimensions:
+
+1. RELATIONSHIP STRENGTH (data provided in deepSignals.relationshipGraph):
+   - Use the pre-computed strength scores, response speed, informality level
+   - Strong bidirectional relationships = high-trust intro potential
+
+2. VALUE EXCHANGE POTENTIAL (YOU must infer this):
+   - Complementary skills: designer+developer > designer+designer
+   - Need/offer match: one's hiring + one's job hunting = gold
+   - Network access: "she knows everyone in VC" = valuable for a founder
+   - Knowledge gap: expert in what the other needs to learn
+   - Score: how much MUTUAL value would this connection create?
+
+3. TIMING & CONTEXT (infer from messages):
+   - Travel mentions: "I'll be in X next week" = immediate opportunity
+   - Life transitions: "just left my job", "moving to", "thinking about"
+   - Recency: recent messages > old ones
+   - Score: is NOW the right time for this connection?
+
+4. SOCIAL DYNAMICS (infer from chat behavior):
+   - Status balance: don't suggest lopsided intros (intern → CEO for "networking")
+   - Reciprocity: BOTH sides must benefit, not just one
+   - Connector credibility: does the connector have strong relationships with BOTH people?
+   - Score: would this intro be well-received and socially appropriate?
+
+Each trust_activation should include a "dimensions" object showing scores for all four.
+
 TWO-PASS ANALYSIS:
 The chat has been pre-scanned and contacts have been PRIORITIZED. You'll receive a list of high-priority contacts — focus your deepest analysis on these people. For lower-priority contacts, a basic profile is fine. This ensures quality over quantity.
 
