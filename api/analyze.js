@@ -81,7 +81,14 @@ CREATIVE MATCHING — Go beyond the obvious. Hunt for these non-obvious touchpoi
 - **Personality chemistry** → one's a big-picture thinker, the other's a detail executor — they'd complement
 - **Unspoken needs** → someone venting about a problem + someone who solved that exact problem
 
-The BEST connections feel like "how did you know?!" — not "well, duh." That's the Connex difference.`;
+The BEST connections feel like "how did you know?!" — not "well, duh." That's the Connex difference.
+
+ZERO GENERIC SUGGESTIONS. Every suggestion MUST have:
+1. A SPECIFIC reason unique to these two people — not "shared interests" but "you both quit BigTech to build in crypto and you're both in Bangkok this month"
+2. A SPECIFIC conversation starter — not "you have a lot in common" but "ask her about her experience scaling a team at Stripe — you're facing the exact same challenge"
+3. A SPECIFIC reason it matters NOW — timing, location, life stage
+
+If you can't find something specific and compelling, DON'T suggest it. Five incredible suggestions beat twenty generic ones. Quality is everything. Silence is better than noise.`;
 
 export default async function handler(req, res) {
   // CORS headers
