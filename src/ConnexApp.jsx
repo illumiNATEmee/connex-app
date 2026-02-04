@@ -206,6 +206,7 @@ export default function ConnexApp() {
   // User profile state (optional enrichment)
   const [userLinkedin, setUserLinkedin] = useState("");
   const [userTwitter, setUserTwitter] = useState("");
+  const [userInstagram, setUserInstagram] = useState("");
   const [userName, setUserName] = useState("");
   const [userCity, setUserCity] = useState("");
 
@@ -235,8 +236,8 @@ export default function ConnexApp() {
     // Try Claude API first
     try {
       setProcessingStatus("Sending to Connex Brain (Claude API)...");
-      const userProfile = (userName || userLinkedin || userTwitter || userCity) ? {
-        name: userName, linkedinUrl: userLinkedin, twitterHandle: userTwitter, city: userCity,
+      const userProfile = (userName || userLinkedin || userTwitter || userInstagram || userCity) ? {
+        name: userName, linkedinUrl: userLinkedin, twitterHandle: userTwitter, instagramHandle: userInstagram, city: userCity,
       } : undefined;
       const res = await fetch("/api/analyze", {
         method: "POST",
@@ -356,6 +357,7 @@ export default function ConnexApp() {
               <input value={userCity} onChange={(e) => setUserCity(e.target.value)} placeholder="Your city (e.g. Bangkok)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
               <input value={userLinkedin} onChange={(e) => setUserLinkedin(e.target.value)} placeholder="LinkedIn URL" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
               <input value={userTwitter} onChange={(e) => setUserTwitter(e.target.value)} placeholder="X handle (e.g. @username)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userInstagram} onChange={(e) => setUserInstagram(e.target.value)} placeholder="Instagram (e.g. @username)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", gridColumn: "1 / -1" }} />
             </div>
           </div>
 

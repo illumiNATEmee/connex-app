@@ -114,7 +114,7 @@ export default async function handler(req, res) {
         {
           role: "user",
           content: `Analyze this WhatsApp group chat export and return rich structured profiles for every member.${
-            userProfile ? `\n\nADDITIONAL CONTEXT — The person running this analysis:\nName: ${userProfile.name || "Unknown"}\nLinkedIn: ${userProfile.linkedinUrl || "N/A"}\nX/Twitter: ${userProfile.twitterHandle || "N/A"}\nCity: ${userProfile.city || "N/A"}\nInterests: ${userProfile.interests || "N/A"}\n\nWhen generating trust_activations, PRIORITIZE connections relevant to this person. Who should THEY meet from this group?` : ""
+            userProfile ? `\n\nADDITIONAL CONTEXT — The person running this analysis:\nName: ${userProfile.name || "Unknown"}\nLinkedIn: ${userProfile.linkedinUrl || "N/A"}\nX/Twitter: ${userProfile.twitterHandle || "N/A"}\nInstagram: ${userProfile.instagramHandle || "N/A"}\nCity: ${userProfile.city || "N/A"}\n\nWhen generating trust_activations, PRIORITIZE connections relevant to this person. Who should THEY meet from this group? Use their social profiles to infer their interests and find non-obvious matches.` : ""
           }\n\nCHAT EXPORT:\n${truncated}`,
         },
       ],
