@@ -1,5 +1,18 @@
 # Connex — Product Flow (Definitive)
 
+## North Star
+
+The ONLY thing that matters: **the quality of the connection suggestion.**
+
+Everything else — scraping, profiles, aggregation, UI — is invisible plumbing. The user experiences ONE thing: a connection they didn't know existed, with a reason that makes them say "how did you know?"
+
+**Retention loop:**
+Upload chat → mind-blowing connection → act on it → it works → "what else can I upload?" → hooked
+
+Every feature must serve this loop. If it doesn't make suggestions better, it doesn't ship.
+
+---
+
 ## New User Journey
 
 ```
