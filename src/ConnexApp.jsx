@@ -287,25 +287,69 @@ export default function ConnexApp() {
       const highPriority = prioritized.filter(p => p.tier === "deep_dive");
       const highPriorityNames = highPriority.map(p => p.name);
 
-      // Step 4: Smart search agent — go find real data on high-priority contacts
+      // Step 4: Smart Search — iterative contact intelligence
       let searchEnrichments = null;
-      if (highPriority.length > 0) {
-        setProcessingStatus(`🔍 Searching for ${highPriority.length} high-priority contacts...`);
-        try {
-          const searchContacts = highPriority.slice(0, 5).map(p => ({
+      if (highPriority.length > 0 && userProfile) {
+        // Build contact list with phone numbers + chat context
+        const searchContacts = highPriority.slice(0, 8).map(p => {
+          const member = parsedChat.members.find(m => m.name === p.name);
+          const phoneMatch = p.name.match(/\+[\d\s()-]+/);
+          return {
             name: p.name,
-            clues: p.signals.filter(s => !s.startsWith("⚠️")),
-            chatContext: parsedChat.messages.filter(m => m.sender === p.name).map(m => m.text).join("\n").slice(0, 1000),
-          }));
-          const searchRes = await fetch("/api/search-enrich", {
+            phone: phoneMatch ? phoneMatch[0] : null,
+            clues: [
+              ...p.signals.filter(s => !s.startsWith("⚠️")),
+              ...(selfDisclosures.filter(d => d.sender === p.name).map(d => `${d.field}: ${d.value}`)),
+              ...(endorsements.filter(e => e.about === p.name).map(e => `Endorsed for: ${e.skill}`)),
+            ],
+            chatMessages: parsedChat.messages.filter(m => m.sender === p.name).map(m => m.text).join("\n").slice(0, 1500),
+          };
+        });
+
+        // Round 1: Broad scan
+        setProcessingStatus(`🔍 Round 1: Scanning ${searchContacts.length} contacts...`);
+        try {
+          const r1 = await fetch("/api/smart-search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contacts: searchContacts }),
+            body: JSON.stringify({ userProfile, contacts: searchContacts, round: 1 }),
           });
-          if (searchRes.ok) {
-            const searchData = await searchRes.json();
-            searchEnrichments = searchData.profiles;
-            setProcessingStatus(`✅ Found data on ${searchData.profiles.filter(p => p.verified).length} contacts`);
+          if (r1.ok) {
+            const r1Data = await r1.json();
+            setProcessingStatus(`📊 Found ${r1Data.summary.strong} strong, ${r1Data.summary.promising} promising matches`);
+
+            // Round 2: Deep dive on promising leads
+            if (r1Data.needsAnotherRound && r1Data.nextRoundContacts.length > 0) {
+              setProcessingStatus(`🔍 Round 2: Deep-diving ${r1Data.nextRoundContacts.length} promising leads...`);
+              try {
+                const r2 = await fetch("/api/smart-search", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    userProfile,
+                    contacts: r1Data.nextRoundContacts,
+                    round: 2,
+                    previousResults: r1Data.results,
+                  }),
+                });
+                if (r2.ok) {
+                  const r2Data = await r2.json();
+                  // Merge round 2 results with round 1
+                  const allResults = [...r1Data.results];
+                  r2Data.results.forEach(r2r => {
+                    const idx = allResults.findIndex(r => r.name === r2r.name);
+                    if (idx >= 0) allResults[idx] = r2r; // Replace with deeper data
+                    else allResults.push(r2r);
+                  });
+                  searchEnrichments = allResults;
+                  setProcessingStatus(`✅ ${allResults.filter(r => r.match_tier === "strong").length} strong matches confirmed`);
+                }
+              } catch (_) {
+                searchEnrichments = r1Data.results;
+              }
+            } else {
+              searchEnrichments = r1Data.results;
+            }
           }
         } catch (_) { /* search failed — continue without */ }
       }
