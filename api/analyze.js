@@ -134,7 +134,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const { chatText, userProfile, enrichedUserProfile, deepSignals, highPriorityContacts } = req.body;
+  const { chatText, userProfile, enrichedUserProfile, deepSignals, highPriorityContacts, searchEnrichments } = req.body;
 
   if (!chatText || typeof chatText !== "string") {
     return res.status(400).json({ error: "chatText is required" });
@@ -169,6 +169,8 @@ export default async function handler(req, res) {
             : ""
           }${
             highPriorityContacts?.length ? `\n\nHIGH-PRIORITY CONTACTS (focus your deepest analysis here):\n${highPriorityContacts.join(", ")}\n\nThese contacts were pre-scored as most likely to yield valuable connections. Build RICH profiles for these people. Basic profiles are fine for others.` : ""
+          }${
+            searchEnrichments?.length ? `\n\nSEARCH AGENT FINDINGS (verified data from web search):\n${JSON.stringify(searchEnrichments.filter(s => s.verified), null, 2)}\n\nThese profiles were found by searching the web using clues from the chat. MERGE this verified data with what you find in the messages. This is REAL data — use it for precise matching.` : ""
           }${
             deepSignals ? `\n\nDEEP SIGNALS EXTRACTED FROM CHAT:\n${JSON.stringify(deepSignals, null, 2)}\n\nUse these signals for richer profiling:\n- Shared links reveal interests (Spotify=music taste, GitHub=tech, YouTube=content preferences)\n- Phone area codes reveal original/home cities\n- Timing patterns reveal timezone and lifestyle (night owl vs early bird)\n- Emoji usage reveals personality and communication style\n- Cross-reference these with message content for higher confidence profiles` : ""
           }\n\nCHAT EXPORT:\n${truncated}`,

@@ -284,11 +284,35 @@ export default function ConnexApp() {
       setProcessingStatus("🎯 Prioritizing contacts...");
       const localProfiles = enrichProfiles(parsedChat);
       const prioritized = prioritizeContacts(localProfiles, userProfile, deepSignals);
-      const highPriority = prioritized.filter(p => p.tier === "deep_dive").map(p => p.name);
+      const highPriority = prioritized.filter(p => p.tier === "deep_dive");
+      const highPriorityNames = highPriority.map(p => p.name);
 
-      // Step 4: Analyze chat with enriched user context + deep signals + priorities
-      setProcessingStatus(`🧠 Deep-diving ${highPriority.length} high-priority contacts...`);
-      const analyzePayload = { chatText: text, userProfile, deepSignals, highPriorityContacts: highPriority };
+      // Step 4: Smart search agent — go find real data on high-priority contacts
+      let searchEnrichments = null;
+      if (highPriority.length > 0) {
+        setProcessingStatus(`🔍 Searching for ${highPriority.length} high-priority contacts...`);
+        try {
+          const searchContacts = highPriority.slice(0, 5).map(p => ({
+            name: p.name,
+            clues: p.signals.filter(s => !s.startsWith("⚠️")),
+            chatContext: parsedChat.messages.filter(m => m.sender === p.name).map(m => m.text).join("\n").slice(0, 1000),
+          }));
+          const searchRes = await fetch("/api/search-enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contacts: searchContacts }),
+          });
+          if (searchRes.ok) {
+            const searchData = await searchRes.json();
+            searchEnrichments = searchData.profiles;
+            setProcessingStatus(`✅ Found data on ${searchData.profiles.filter(p => p.verified).length} contacts`);
+          }
+        } catch (_) { /* search failed — continue without */ }
+      }
+
+      // Step 5: Analyze chat with ALL intelligence
+      setProcessingStatus(`🧠 Connex Brain analyzing...`);
+      const analyzePayload = { chatText: text, userProfile, deepSignals, highPriorityContacts: highPriorityNames, searchEnrichments };
       if (aggregatedProfile) {
         analyzePayload.enrichedUserProfile = aggregatedProfile;
       }
