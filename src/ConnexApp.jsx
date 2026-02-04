@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts, buildRelationshipGraph } from "./connex-engine.js";
+import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts, buildRelationshipGraph, extractIntents, extractEndorsements, extractSelfDisclosures, generateSearchQueries } from "./connex-engine.js";
 
 // Engine imported from connex-engine.js — offline fallback
 // API endpoint at /api/analyze — Claude-powered Brain analysis
@@ -264,12 +264,20 @@ export default function ConnexApp() {
 
       // Step 2: Extract deep signals from chat
       setProcessingStatus("🔍 Extracting deep signals...");
+      const memberNames = parsedChat.members.map(m => m.name);
+      const intents = extractIntents(parsedChat.messages);
+      const endorsements = extractEndorsements(parsedChat.messages, memberNames);
+      const selfDisclosures = extractSelfDisclosures(parsedChat.messages);
+
       const deepSignals = {
         sharedLinks: extractSharedLinks(parsedChat.messages),
         phoneSignals: extractPhoneSignals(parsedChat.members),
         timingPatterns: extractTimingPatterns(parsedChat.messages),
         emojiProfiles: extractEmojiProfile(parsedChat.messages),
         relationshipGraph: buildRelationshipGraph(parsedChat),
+        intents,
+        endorsements,
+        selfDisclosures,
       };
 
       // Step 3: Prioritize contacts (quick local scan)

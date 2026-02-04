@@ -173,6 +173,152 @@ export function extractEmojiProfile(messages) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// CONTEXTUAL INTELLIGENCE (mining the chat for real data)
+// ═══════════════════════════════════════════════════════════
+
+// Intent detection — what are people actively looking for?
+export function extractIntents(messages) {
+  const intentPatterns = [
+    { pattern: /(?:anyone know|does anyone|who knows|can someone|looking for|need a|searching for|trying to find)\s+(.+?)(?:\?|$)/i, type: "seeking" },
+    { pattern: /(?:i'?m? hiring|we'?re? hiring|looking to hire|need to hire|open role|job opening)\s*(.+?)(?:\?|$)/i, type: "hiring" },
+    { pattern: /(?:i'?m? looking for (?:a |an )?(?:new )?(?:job|role|position|opportunity|work))/i, type: "job_seeking" },
+    { pattern: /(?:thinking about (?:leaving|quitting)|(?:just )?left (?:my )?(?:job|company|role)|moving on from)/i, type: "career_transition" },
+    { pattern: /(?:raising|fundraising|looking for (?:investors?|funding|capital)|series [a-d]|seed round|pitch(?:ing)?)/i, type: "fundraising" },
+    { pattern: /(?:i'?ll be in|(?:heading|going|flying|traveling) to|visiting|based in|moving to|just (?:landed|arrived) in)\s+(.+?)(?:\s|$|,|\.)/i, type: "travel" },
+    { pattern: /(?:anyone (?:in|near|around)|who(?:'s| is) in)\s+(.+?)(?:\?|$)/i, type: "location_check" },
+    { pattern: /(?:can (?:someone )?(?:intro|introduce|connect)|would you (?:intro|introduce))/i, type: "seeking_intro" },
+    { pattern: /(?:i know (?:a |someone)|i can (?:intro|introduce|connect)|happy to (?:intro|introduce))/i, type: "offering_intro" },
+    { pattern: /(?:recommend|suggestion|know a good)\s+(.+?)(?:\?|$)/i, type: "recommendation" },
+  ];
+
+  const intents = [];
+  messages.forEach(msg => {
+    intentPatterns.forEach(({ pattern, type }) => {
+      const match = msg.text.match(pattern);
+      if (match) {
+        intents.push({
+          type,
+          sender: msg.sender,
+          detail: match[1]?.trim() || msg.text.slice(0, 100),
+          fullText: msg.text.slice(0, 200),
+          date: msg.date,
+        });
+      }
+    });
+  });
+  return intents;
+}
+
+// Third-party endorsements — when people vouch for others
+export function extractEndorsements(messages, memberNames) {
+  const endorsements = [];
+  const nameSet = new Set(memberNames.map(n => n.toLowerCase()));
+  const firstNames = new Map(memberNames.map(n => [n.toLowerCase().split(" ")[0], n]));
+
+  const endorsementPatterns = [
+    /(?:is (?:amazing|incredible|brilliant|great|fantastic|awesome|the best) at)\s+(.+?)(?:\.|$)/i,
+    /(?:really (?:good|great|talented|skilled) (?:at|with|in))\s+(.+?)(?:\.|$)/i,
+    /(?:knows (?:everything|a lot|so much) about)\s+(.+?)(?:\.|$)/i,
+    /(?:built|created|designed|led|runs?|founded|co-?founded)\s+(.+?)(?:\.|$)/i,
+    /(?:works? (?:at|for|with))\s+(.+?)(?:\.|,|$)/i,
+    /(?:used to (?:work|be) (?:at|for|with))\s+(.+?)(?:\.|,|$)/i,
+  ];
+
+  messages.forEach(msg => {
+    const text = msg.text;
+    const textLower = text.toLowerCase();
+
+    // Check if message mentions another member
+    firstNames.forEach((fullName, firstName) => {
+      if (firstName.length > 2 && textLower.includes(firstName) && msg.sender !== fullName) {
+        endorsementPatterns.forEach(pattern => {
+          const match = text.match(pattern);
+          if (match) {
+            endorsements.push({
+              about: fullName,
+              by: msg.sender,
+              skill: match[1]?.trim(),
+              fullText: text.slice(0, 200),
+              date: msg.date,
+              confidence: 0.7,
+            });
+          }
+        });
+      }
+    });
+  });
+  return endorsements;
+}
+
+// Self-disclosed data — verified statements about themselves
+export function extractSelfDisclosures(messages) {
+  const disclosurePatterns = [
+    { pattern: /i (?:work|am) (?:at|for|with)\s+(.+?)(?:\.|,|$| as)/i, field: "company" },
+    { pattern: /i'?m? (?:a |an )(.+?)(?:\.|,|$| at| for| and)/i, field: "role" },
+    { pattern: /(?:based in|live in|i'?m? in|from)\s+(.+?)(?:\.|,|$)/i, field: "location" },
+    { pattern: /(?:went to|studied at|graduated from|alumni of)\s+(.+?)(?:\.|,|$)/i, field: "education" },
+    { pattern: /(?:i'?m? turning|my birthday|i'?m? )(\d{2,3})(?: years old)?/i, field: "age" },
+    { pattern: /(?:my (?:wife|husband|partner|girlfriend|boyfriend|spouse))\s+(.+?)(?:\.|,|$| and)/i, field: "relationship" },
+    { pattern: /(?:just (?:had|got)|expecting) (?:a )?(?:baby|kid|child)/i, field: "life_event" },
+  ];
+
+  const disclosures = [];
+  messages.forEach(msg => {
+    disclosurePatterns.forEach(({ pattern, field }) => {
+      const match = msg.text.match(pattern);
+      if (match) {
+        disclosures.push({
+          sender: msg.sender,
+          field,
+          value: match[1]?.trim() || "detected",
+          fullText: msg.text.slice(0, 200),
+          date: msg.date,
+          confidence: 0.85, // Self-stated = high confidence
+        });
+      }
+    });
+  });
+  return disclosures;
+}
+
+// Build Google search queries for high-priority contacts
+export function generateSearchQueries(profiles, intents, endorsements, disclosures) {
+  return profiles.map(profile => {
+    const name = profile.display_name;
+    const clues = [];
+
+    // From disclosures
+    const selfData = disclosures.filter(d => d.sender === name);
+    selfData.forEach(d => {
+      if (d.field === "company") clues.push(d.value);
+      if (d.field === "education") clues.push(d.value);
+    });
+
+    // From endorsements
+    const endorsedFor = endorsements.filter(e => e.about === name);
+    endorsedFor.forEach(e => {
+      if (e.skill) clues.push(e.skill);
+    });
+
+    // From interests
+    const topInterest = profile.interests?.[0]?.category;
+    if (topInterest) clues.push(topInterest);
+
+    // Generate search queries
+    const queries = [`"${name}"`];
+    if (clues.length > 0) queries.push(`"${name}" ${clues[0]}`);
+    if (clues.length > 1) queries.push(`"${name}" ${clues[1]}`);
+
+    return {
+      name,
+      queries,
+      clues,
+      searchUrl: `https://www.google.com/search?q=${encodeURIComponent(queries[queries.length - 1])}`,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 // EXTRACTORS
 // ═══════════════════════════════════════════════════════════
 
@@ -677,12 +823,21 @@ export function runPipeline(chatText) {
   const dmStrategy = getDMStrategy(profiles);
 
   // Deep signal extraction
+  const memberNames = parsedChat.members.map(m => m.name);
+  const intents = extractIntents(parsedChat.messages);
+  const endorsements = extractEndorsements(parsedChat.messages, memberNames);
+  const selfDisclosures = extractSelfDisclosures(parsedChat.messages);
+
   const deepSignals = {
     sharedLinks: extractSharedLinks(parsedChat.messages),
     phoneSignals: extractPhoneSignals(parsedChat.members),
     timingPatterns: extractTimingPatterns(parsedChat.messages),
     emojiProfiles: extractEmojiProfile(parsedChat.messages),
     relationshipGraph: buildRelationshipGraph(parsedChat),
+    intents,
+    endorsements,
+    selfDisclosures,
+    searchQueries: generateSearchQueries(profiles, intents, endorsements, selfDisclosures),
   };
 
   return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals };
