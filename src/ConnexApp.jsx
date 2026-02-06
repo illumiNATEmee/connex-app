@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts, buildRelationshipGraph, extractIntents, extractEndorsements, extractSelfDisclosures, generateSearchQueries } from "./connex-engine.js";
+import SecondDegreeMatcher from "./SecondDegreeMatcher.jsx";
+import { API_BASE } from "./config.js";
 
 // Engine imported from connex-engine.js — offline fallback
 // API endpoint at /api/analyze — Claude-powered Brain analysis
@@ -198,6 +200,9 @@ export default function ConnexApp() {
   const [processing, setProcessing] = useState(false);
   const [copied, setCopied] = useState(false);
   const [expProfile, setExpProfile] = useState(null);
+  
+  // Mode toggle: "group" = analyze a group | "2nd_degree" = find YOUR matches
+  const [mode, setMode] = useState(null); // null = mode selector, "group" | "2nd_degree"
   const [analysisMode, setAnalysisMode] = useState(null); // "claude" | "offline"
   const [processingStatus, setProcessingStatus] = useState("");
   const [groupInsights, setGroupInsights] = useState(null);
@@ -244,7 +249,7 @@ export default function ConnexApp() {
         if (userLinkedin || userTwitter || userInstagram) {
           setProcessingStatus("🧬 Scraping your social profiles...");
           try {
-            const aggRes = await fetch("/api/aggregate", {
+            const aggRes = await fetch(`${API_BASE}/api/aggregate`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -309,7 +314,7 @@ export default function ConnexApp() {
         // Round 1: Broad scan
         setProcessingStatus(`🔍 Round 1: Scanning ${searchContacts.length} contacts...`);
         try {
-          const r1 = await fetch("/api/smart-search", {
+          const r1 = await fetch(`${API_BASE}/api/smart-search`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userProfile, contacts: searchContacts, round: 1 }),
@@ -322,7 +327,7 @@ export default function ConnexApp() {
             if (r1Data.needsAnotherRound && r1Data.nextRoundContacts.length > 0) {
               setProcessingStatus(`🔍 Round 2: Deep-diving ${r1Data.nextRoundContacts.length} promising leads...`);
               try {
-                const r2 = await fetch("/api/smart-search", {
+                const r2 = await fetch(`${API_BASE}/api/smart-search`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -360,7 +365,7 @@ export default function ConnexApp() {
       if (aggregatedProfile) {
         analyzePayload.enrichedUserProfile = aggregatedProfile;
       }
-      const res = await fetch("/api/analyze", {
+      const res = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(analyzePayload),
@@ -459,7 +464,12 @@ export default function ConnexApp() {
   const btnA = { background: C.accent, color: "#fff", border: "none", borderRadius: 8, padding: "10px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", letterSpacing: 0.5 };
   const tabS = (active) => ({ flex: 1, padding: "10px 8px", textAlign: "center", fontSize: 11, fontWeight: 600, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer", borderRadius: 8, border: "none", fontFamily: "inherit", background: active ? C.accent : "transparent", color: active ? "#fff" : C.textMuted });
 
-  // ─── UPLOAD ───
+  // ─── MODE SELECTOR ───
+  if (mode === "2nd_degree") {
+    return <SecondDegreeMatcher onBack={() => setMode(null)} />;
+  }
+
+  // ─── UPLOAD (Group Analysis) ───
   if (!results) {
     return (
       <div style={{ fontFamily: "'JetBrains Mono','SF Mono','Fira Code',monospace", background: C.bg, color: C.text, minHeight: "100vh" }}>
@@ -468,6 +478,41 @@ export default function ConnexApp() {
             <div style={{ fontSize: 13, letterSpacing: 6, textTransform: "uppercase", color: C.accent, fontWeight: 600 }}>▲ Connex</div>
             <h1 style={{ fontSize: 28, fontWeight: 700, margin: "8px 0", letterSpacing: -0.5 }}>Unlock Your Network</h1>
             <p style={{ fontSize: 13, color: C.textMuted }}>Upload a WhatsApp chat → discover connections you didn't know existed</p>
+          </div>
+          
+          {/* ─── MODE TOGGLE ─── */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 24 }}>
+            <div 
+              onClick={() => setMode("group")}
+              style={{ 
+                flex: 1, ...card, marginBottom: 0, cursor: "pointer", 
+                borderColor: mode === "group" ? C.accent : C.border,
+                background: mode === "group" ? C.accentSoft : C.card,
+                padding: 20, textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>👥</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Analyze a Group</div>
+              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+                See who should meet within<br/>your own community
+              </div>
+            </div>
+            <div 
+              onClick={() => setMode("2nd_degree")}
+              style={{ 
+                flex: 1, ...card, marginBottom: 0, cursor: "pointer",
+                borderColor: C.green + "60",
+                background: C.greenSoft,
+                padding: 20, textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: C.green }}>Find YOUR Matches</div>
+              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+                Upload a friend's chat →<br/>find who YOU should meet
+              </div>
+              <div style={{ marginTop: 8, fontSize: 10, padding: "4px 10px", borderRadius: 4, background: C.green, color: "#000", display: "inline-block", fontWeight: 700, letterSpacing: 1 }}>NEW</div>
+            </div>
           </div>
           {/* ─── YOUR PROFILE ─── */}
           <div style={{ ...card, marginBottom: 20, padding: 20 }}>

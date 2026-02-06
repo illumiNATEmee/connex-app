@@ -173,6 +173,373 @@ export function extractEmojiProfile(messages) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// CONVERSATION THREAD DETECTION
+// ═══════════════════════════════════════════════════════════
+
+function parseMessageDateTime(msg) {
+  // Parse date
+  let dateParts = null;
+  const isoMatch = msg.date?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const usMatch = msg.date?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (isoMatch) {
+    dateParts = { year: parseInt(isoMatch[1]), month: parseInt(isoMatch[2]) - 1, day: parseInt(isoMatch[3]) };
+  } else if (usMatch) {
+    let year = parseInt(usMatch[3]);
+    if (year < 100) year += 2000;
+    dateParts = { month: parseInt(usMatch[1]) - 1, day: parseInt(usMatch[2]), year };
+  }
+  if (!dateParts) return null;
+
+  // Parse time
+  const timeMatch = msg.time?.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+  if (!timeMatch) return null;
+  let hour = parseInt(timeMatch[1]);
+  const minute = parseInt(timeMatch[2]);
+  if (timeMatch[4]?.toUpperCase() === "PM" && hour !== 12) hour += 12;
+  if (timeMatch[4]?.toUpperCase() === "AM" && hour === 12) hour = 0;
+
+  return new Date(dateParts.year, dateParts.month, dateParts.day, hour, minute);
+}
+
+function extractTopicKeywords(messages) {
+  const stopWords = new Set([
+    "the","a","an","is","are","was","were","be","been","being","have","has","had",
+    "do","does","did","will","would","could","should","may","might","shall","can",
+    "i","you","he","she","it","we","they","me","him","her","us","them","my","your",
+    "his","its","our","their","this","that","these","those","what","which","who",
+    "when","where","how","why","not","no","yes","yeah","yep","nah","nope","ok","okay",
+    "just","like","really","very","so","too","also","but","and","or","if","then",
+    "for","with","from","about","into","to","in","on","at","by","of","up","out",
+    "all","some","any","one","two","more","much","many","well","now","here","there",
+    "get","got","going","go","come","know","think","want","need","let","make","take",
+    "see","say","said","tell","told","look","good","great","nice","cool","right",
+    "lol","haha","lmao","omg","media","omitted","im","dont","didnt","cant","its",
+    "thats","whats","been","was","had","that","http","https","www","com",
+  ]);
+
+  const wordCounts = {};
+  messages.forEach(msg => {
+    const words = msg.text.toLowerCase()
+      .replace(/https?:\/\/[^\s]+/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w));
+    words.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
+  });
+
+  return Object.entries(wordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([word]) => word);
+}
+
+export function detectThreads(messages) {
+  if (!messages || messages.length === 0) return [];
+
+  const THREAD_GAP_MS = 10 * 60 * 1000; // 10 minutes
+  const threads = [];
+  let currentThread = null;
+
+  messages.forEach((msg, idx) => {
+    const msgTime = parseMessageDateTime(msg);
+    if (!msgTime) {
+      // Can't parse time — attach to current thread if one exists
+      if (currentThread) {
+        currentThread.messages.push(msg);
+        if (!currentThread.participantSet.has(msg.sender)) {
+          currentThread.participantSet.add(msg.sender);
+        }
+      }
+      return;
+    }
+
+    if (!currentThread) {
+      // Start first thread
+      currentThread = {
+        messages: [msg],
+        participantSet: new Set([msg.sender]),
+        startTime: msgTime,
+        endTime: msgTime,
+      };
+      return;
+    }
+
+    const gap = msgTime - currentThread.endTime;
+
+    if (gap <= THREAD_GAP_MS) {
+      // Same thread — within 10 min window
+      currentThread.messages.push(msg);
+      currentThread.participantSet.add(msg.sender);
+      currentThread.endTime = msgTime;
+    } else {
+      // New thread — finalize current one
+      threads.push(finalizeThread(currentThread));
+      currentThread = {
+        messages: [msg],
+        participantSet: new Set([msg.sender]),
+        startTime: msgTime,
+        endTime: msgTime,
+      };
+    }
+  });
+
+  // Finalize last thread
+  if (currentThread && currentThread.messages.length > 0) {
+    threads.push(finalizeThread(currentThread));
+  }
+
+  return threads;
+}
+
+function finalizeThread(thread) {
+  const participants = [...thread.participantSet];
+  const topicKeywords = extractTopicKeywords(thread.messages);
+
+  return {
+    participants,
+    messages: thread.messages,
+    startTime: thread.startTime?.toISOString() || null,
+    endTime: thread.endTime?.toISOString() || null,
+    topicKeywords,
+    messageCount: thread.messages.length,
+    participantCount: participants.length,
+  };
+}
+
+export function analyzeThreadContext(threads) {
+  return threads.map(thread => {
+    const { participants, messages } = thread;
+
+    // Dyad vs group discussion
+    const type = participants.length === 2 ? "dyad" : participants.length <= 3 ? "small_group" : "group_discussion";
+
+    // Thread depth — count back-and-forth exchanges
+    let exchanges = 0;
+    let lastSender = null;
+    messages.forEach(msg => {
+      if (msg.sender !== lastSender && lastSender !== null) exchanges++;
+      lastSender = msg.sender;
+    });
+
+    // Request-response pattern detection
+    const requestResponse = [];
+    for (let i = 0; i < messages.length - 1; i++) {
+      const msg = messages[i];
+      const next = messages[i + 1];
+      const isQuestion = /\?|(?:anyone know|does anyone|who knows|can someone|looking for|need a|how do|what is|where is|when is)/i.test(msg.text);
+      if (isQuestion && next.sender !== msg.sender) {
+        requestResponse.push({
+          asker: msg.sender,
+          responder: next.sender,
+          question: msg.text.slice(0, 150),
+          answer: next.text.slice(0, 150),
+          date: msg.date,
+        });
+      }
+    }
+
+    // Participant engagement within thread
+    const participantMsgCounts = {};
+    messages.forEach(msg => {
+      participantMsgCounts[msg.sender] = (participantMsgCounts[msg.sender] || 0) + 1;
+    });
+
+    return {
+      ...thread,
+      type,
+      depth: exchanges,
+      requestResponse,
+      participantEngagement: participantMsgCounts,
+    };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// TEMPORAL DECAY SCORING
+// ═══════════════════════════════════════════════════════════
+
+export function applyTemporalDecay(messages, referenceDate) {
+  const refDate = referenceDate ? new Date(referenceDate) : new Date();
+  const HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days in ms
+  const DECAY_CONSTANT = Math.LN2 / HALF_LIFE_MS;
+
+  return messages.map(msg => {
+    const msgDate = parseMessageDateTime(msg);
+    if (!msgDate) return { ...msg, decayMultiplier: 0.5 }; // Unknown date gets neutral-ish weight
+
+    const ageMs = Math.max(refDate - msgDate, 0);
+    const decayMultiplier = Math.exp(-DECAY_CONSTANT * ageMs);
+
+    return { ...msg, decayMultiplier };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVIDENCE TRAIL FOR SUGGESTIONS
+// ═══════════════════════════════════════════════════════════
+
+export function buildEvidenceTrail(suggestion, deepSignals, parsedChat) {
+  const evidence = [];
+  const participants = suggestion.participants || [];
+  const activity = suggestion.activity;
+  const location = suggestion.location;
+
+  if (!deepSignals || !parsedChat) return evidence;
+
+  // 1. Self-disclosures by participants
+  (deepSignals.selfDisclosures || []).forEach(d => {
+    if (participants.includes(d.sender)) {
+      // Location-relevant disclosures
+      if (d.field === "location" && location && d.value.toLowerCase().includes(location.toLowerCase().slice(0, 4))) {
+        evidence.push({
+          type: "self_disclosure",
+          quote: d.fullText.slice(0, 200),
+          by: d.sender,
+          date: d.date,
+          field: d.field,
+        });
+      }
+      // Company/role disclosures (always interesting)
+      if (d.field === "company" || d.field === "role") {
+        evidence.push({
+          type: "self_disclosure",
+          quote: d.fullText.slice(0, 200),
+          by: d.sender,
+          date: d.date,
+          field: d.field,
+        });
+      }
+    }
+  });
+
+  // 2. Shared interests — find specific messages that prove the interest
+  if (activity) {
+    const interestKeywords = {
+      sports: ["ufc","mma","warriors","basketball","golf","football","soccer","tennis","gym","workout","nba","nfl","boxing"],
+      crypto: ["bitcoin","btc","ethereum","crypto","trading","blockchain","nft","defi","solana","web3"],
+      food: ["dim sum","restaurant","brunch","dinner","thai food","sushi","ramen","coffee","cocktails","lunch","bar","drinks"],
+      wellness: ["sauna","ice bath","massage","spa","wellness","yoga","meditation","mindfulness","recovery"],
+      tech: ["ai","startup","coding","engineering","product","developer","software","app","llm","gpt","claude"],
+      business: ["fundraising","investor","funding","strategy","revenue","growth","pitch","deal","vc","equity"],
+      travel: ["flight","airport","hotel","trip","vacation","traveling","passport","airline"],
+      music: ["concert","festival","spotify","playlist","dj","music","band","show","tickets"],
+    };
+    const keywords = interestKeywords[activity] || [];
+
+    // Count keyword mentions per participant
+    const mentionCounts = {};
+    const exampleMessages = {};
+    participants.forEach(p => { mentionCounts[p] = 0; exampleMessages[p] = null; });
+
+    parsedChat.messages.forEach(msg => {
+      if (!participants.includes(msg.sender)) return;
+      const textLower = msg.text.toLowerCase();
+      const matched = keywords.filter(kw => textLower.includes(kw));
+      if (matched.length > 0) {
+        mentionCounts[msg.sender] = (mentionCounts[msg.sender] || 0) + matched.length;
+        if (!exampleMessages[msg.sender]) {
+          exampleMessages[msg.sender] = { text: msg.text.slice(0, 200), date: msg.date };
+        }
+      }
+    });
+
+    // Find pairs with shared interest mentions
+    const activeParticipants = participants.filter(p => mentionCounts[p] > 0);
+    if (activeParticipants.length >= 2) {
+      const totalMentions = activeParticipants.reduce((sum, p) => sum + mentionCounts[p], 0);
+      evidence.push({
+        type: "shared_interest",
+        detail: `${activeParticipants.length} people mentioned ${activity} topics ${totalMentions}+ times`,
+        people: activeParticipants,
+        activity,
+      });
+    }
+
+    // Add specific example quotes
+    activeParticipants.forEach(p => {
+      if (exampleMessages[p]) {
+        evidence.push({
+          type: "interest_mention",
+          quote: exampleMessages[p].text,
+          by: p,
+          date: exampleMessages[p].date,
+          activity,
+        });
+      }
+    });
+  }
+
+  // 3. Travel intents — someone going to the suggestion location
+  (deepSignals.intents || []).forEach(intent => {
+    if (intent.type === "travel" && participants.includes(intent.sender)) {
+      if (location && intent.detail && (
+        intent.detail.toLowerCase().includes(location.toLowerCase().slice(0, 4)) ||
+        location.toLowerCase().includes(intent.detail.toLowerCase().slice(0, 4))
+      )) {
+        evidence.push({
+          type: "travel_intent",
+          quote: intent.fullText.slice(0, 200),
+          by: intent.sender,
+          date: intent.date,
+        });
+      }
+    }
+    // Location check intents
+    if (intent.type === "location_check" && participants.includes(intent.sender)) {
+      evidence.push({
+        type: "location_check",
+        quote: intent.fullText.slice(0, 200),
+        by: intent.sender,
+        date: intent.date,
+      });
+    }
+  });
+
+  // 4. Endorsements among participants
+  (deepSignals.endorsements || []).forEach(e => {
+    if (participants.includes(e.about) && participants.includes(e.by)) {
+      evidence.push({
+        type: "endorsement",
+        quote: e.fullText.slice(0, 200),
+        by: e.by,
+        about: e.about,
+        skill: e.skill,
+        date: e.date,
+      });
+    }
+  });
+
+  // 5. Relationship strength between participants
+  (deepSignals.relationshipGraph || []).forEach(rel => {
+    if (participants.includes(rel.personA) && participants.includes(rel.personB)) {
+      if (rel.strength >= 30) {
+        evidence.push({
+          type: "relationship_strength",
+          detail: `${rel.bidirectional ? "Strong bidirectional" : "Notable"} relationship (score: ${rel.strength})`,
+          people: [rel.personA, rel.personB],
+          strength: rel.strength,
+          label: rel.label,
+        });
+      }
+    }
+  });
+
+  // 6. Seeking intro / offering intro intents
+  (deepSignals.intents || []).forEach(intent => {
+    if ((intent.type === "seeking_intro" || intent.type === "offering_intro") && participants.includes(intent.sender)) {
+      evidence.push({
+        type: intent.type,
+        quote: intent.fullText.slice(0, 200),
+        by: intent.sender,
+        date: intent.date,
+      });
+    }
+  });
+
+  return evidence;
+}
+
+// ═══════════════════════════════════════════════════════════
 // CONTEXTUAL INTELLIGENCE (mining the chat for real data)
 // ═══════════════════════════════════════════════════════════
 
@@ -531,7 +898,7 @@ export function normLoc(loc) { return loc ? (LOC_MAP[loc.toLowerCase()] || loc) 
 // SMART SUGGESTIONS
 // ═══════════════════════════════════════════════════════════
 
-export function generateSuggestions(profiles) {
+export function generateSuggestions(profiles, deepSignals = null, parsedChat = null) {
   const suggestions = [];
   const locationGroups = {};
   profiles.forEach((p) => {
@@ -562,6 +929,13 @@ export function generateSuggestions(profiles) {
       });
     }
   });
+  // Attach evidence trails if deep signals are available
+  if (deepSignals && parsedChat) {
+    suggestions.forEach(suggestion => {
+      suggestion.evidence = buildEvidenceTrail(suggestion, deepSignals, parsedChat);
+    });
+  }
+
   return suggestions.sort((a, b) => b.confidence - a.confidence);
 }
 
@@ -590,23 +964,31 @@ export function getDMStrategy(profiles) {
 // RELATIONSHIP WEIGHT SCORING
 // ═══════════════════════════════════════════════════════════
 
-export function buildRelationshipGraph(parsedChat) {
+export function buildRelationshipGraph(parsedChat, options = {}) {
+  const { useTemporalDecay = false, referenceDate = null } = options;
   const graph = {};
 
+  // Apply temporal decay if enabled
+  let messagesWithDecay = parsedChat.messages;
+  if (useTemporalDecay) {
+    messagesWithDecay = applyTemporalDecay(parsedChat.messages, referenceDate);
+  }
+
   // Build directional interaction matrix
-  parsedChat.messages.forEach((msg, idx) => {
+  messagesWithDecay.forEach((msg, idx) => {
     const sender = msg.sender;
     if (!graph[sender]) graph[sender] = {};
 
     // Look at who they're replying to (message within 5 min of previous = likely reply)
     if (idx > 0) {
-      const prevMsg = parsedChat.messages[idx - 1];
+      const prevMsg = messagesWithDecay[idx - 1];
       if (prevMsg.sender !== sender) {
         // Crude reply detection — sequential messages from different people
         if (!graph[sender][prevMsg.sender]) {
-          graph[sender][prevMsg.sender] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0 };
+          graph[sender][prevMsg.sender] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0, decayWeightSum: 0 };
         }
         graph[sender][prevMsg.sender].replies++;
+        graph[sender][prevMsg.sender].decayWeightSum += (msg.decayMultiplier || 1.0);
 
         // Message depth (word count)
         const wordCount = msg.text.split(/\s+/).length;
@@ -633,9 +1015,10 @@ export function buildRelationshipGraph(parsedChat) {
         const firstName = member.name.toLowerCase().split(" ")[0];
         if (firstName.length > 2 && text.includes(firstName)) {
           if (!graph[sender][member.name]) {
-            graph[sender][member.name] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0 };
+            graph[sender][member.name] = { replies: 0, mentions: 0, avgDepth: 0, depths: [], lateNight: 0, mediaShared: 0, decayWeightSum: 0 };
           }
           graph[sender][member.name].mentions++;
+          graph[sender][member.name].decayWeightSum += (msg.decayMultiplier || 1.0);
         }
       }
     });
@@ -651,10 +1034,14 @@ export function buildRelationshipGraph(parsedChat) {
       if (processed.has(key)) return;
       processed.add(key);
 
-      const reverseData = graph[personB]?.[personA] || { replies: 0, mentions: 0, depths: [], lateNight: 0, mediaShared: 0 };
+      const reverseData = graph[personB]?.[personA] || { replies: 0, mentions: 0, depths: [], lateNight: 0, mediaShared: 0, decayWeightSum: 0 };
 
       // Bidirectional metrics
       const totalInteractions = data.replies + reverseData.replies + data.mentions + reverseData.mentions;
+
+      // Recency score — average decay weight across interactions (0-1, higher = more recent)
+      const totalDecayWeight = (data.decayWeightSum || 0) + (reverseData.decayWeightSum || 0);
+      const recencyScore = totalInteractions > 0 ? totalDecayWeight / totalInteractions : 0;
       const allDepths = [...data.depths, ...reverseData.depths];
       const avgDepth = allDepths.length > 0 ? allDepths.reduce((a, b) => a + b, 0) / allDepths.length : 0;
       const lateNightTotal = data.lateNight + reverseData.lateNight;
@@ -711,10 +1098,19 @@ export function buildRelationshipGraph(parsedChat) {
       strength += Math.min(responseSpeedScore, 10);             // Response speed (max 10)
       strength += Math.min(informalityAB, 9);                   // Informal/casual tone (max 9)
 
+      // Recency boost — recent interactions amplify strength (when temporal decay is enabled)
+      if (useTemporalDecay && recencyScore > 0) {
+        // Boost/penalize by up to ±15% based on recency
+        const recencyModifier = 0.85 + (recencyScore * 0.30); // Range: 0.85x to 1.15x
+        strength = strength * recencyModifier;
+      }
+
+      const finalStrength = Math.min(Math.round(strength), 100);
       relationships.push({
         personA,
         personB,
-        strength: Math.min(Math.round(strength), 100),
+        strength: finalStrength,
+        recencyScore: Math.round(recencyScore * 100) / 100, // 0-1, higher = more recent activity
         interactions: totalInteractions,
         bidirectional: isBidirectional,
         avgMessageDepth: Math.round(avgDepth),
@@ -722,7 +1118,7 @@ export function buildRelationshipGraph(parsedChat) {
         mediaShared: mediaTotal,
         responseSpeed: responseSpeedScore > 5 ? "fast" : responseSpeedScore > 2 ? "normal" : "slow",
         informality: informalityAB > 5 ? "casual" : "formal",
-        label: strength >= 60 ? "strong" : strength >= 30 ? "moderate" : "weak",
+        label: finalStrength >= 60 ? "strong" : finalStrength >= 30 ? "moderate" : "weak",
       });
     });
   });
@@ -801,12 +1197,34 @@ export function prioritizeContacts(profiles, userProfile, deepSignals) {
       signals.push("⚠️ Low messages — limited data for profiling");
     }
 
+    // 9. Recency — recent activity boosts priority
+    let contactRecency = 0;
+    if (deepSignals?.relationshipGraph) {
+      const relevantRels = deepSignals.relationshipGraph.filter(
+        r => r.personA === profile.display_name || r.personB === profile.display_name
+      );
+      if (relevantRels.length > 0) {
+        contactRecency = Math.max(...relevantRels.map(r => r.recencyScore || 0));
+        if (contactRecency > 0.7) {
+          priority += 15;
+          signals.push("Recently active — high recency");
+        } else if (contactRecency > 0.3) {
+          priority += 8;
+          signals.push("Moderately recent activity");
+        } else if (contactRecency < 0.1 && contactRecency > 0) {
+          priority -= 5;
+          signals.push("⚠️ Mostly inactive recently");
+        }
+      }
+    }
+
     return {
       name: profile.display_name,
-      priority: Math.min(priority, 100),
+      priority: Math.min(Math.max(priority, 0), 100),
       tier: priority >= 40 ? "deep_dive" : priority >= 20 ? "worth_checking" : "low_priority",
       signals,
       messageCount: profile.message_count,
+      recencyScore: contactRecency,
       profile,
     };
   })
@@ -901,15 +1319,17 @@ export function runPipeline(chatText) {
   if (parsedChat.stats.totalMessages === 0) return null;
   const profiles = enrichProfiles(parsedChat);
   const analysis = analyzeNetwork(profiles);
-  const suggestions = generateSuggestions(profiles);
   const dmStrategy = getDMStrategy(profiles);
 
-  // Deep signal extraction
+  // Thread detection
+  const rawThreads = detectThreads(parsedChat.messages);
+  const threads = analyzeThreadContext(rawThreads);
+
+  // Deep signal extraction (with temporal decay enabled for relationship graph)
   const memberNames = parsedChat.members.map(m => m.name);
   const intents = extractIntents(parsedChat.messages);
   const endorsements = extractEndorsements(parsedChat.messages, memberNames);
   const selfDisclosures = extractSelfDisclosures(parsedChat.messages);
-
   const identifiers = extractIdentifiers(parsedChat.messages, memberNames);
 
   const deepSignals = {
@@ -917,7 +1337,7 @@ export function runPipeline(chatText) {
     phoneSignals: extractPhoneSignals(parsedChat.members),
     timingPatterns: extractTimingPatterns(parsedChat.messages),
     emojiProfiles: extractEmojiProfile(parsedChat.messages),
-    relationshipGraph: buildRelationshipGraph(parsedChat),
+    relationshipGraph: buildRelationshipGraph(parsedChat, { useTemporalDecay: true }),
     intents,
     endorsements,
     selfDisclosures,
@@ -925,5 +1345,8 @@ export function runPipeline(chatText) {
     searchQueries: generateSearchQueries(profiles, intents, endorsements, selfDisclosures, identifiers),
   };
 
-  return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals };
+  // Generate suggestions with evidence trails attached
+  const suggestions = generateSuggestions(profiles, deepSignals, parsedChat);
+
+  return { parsedChat, profiles, analysis, suggestions, dmStrategy, deepSignals, threads };
 }
