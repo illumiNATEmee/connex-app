@@ -214,6 +214,7 @@ export default function ConnexApp() {
   const [userInstagram, setUserInstagram] = useState("");
   const [userName, setUserName] = useState("");
   const [userCity, setUserCity] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
 
   // Coordinator state
   const [coordActive, setCoordActive] = useState(false);
@@ -515,25 +516,47 @@ export default function ConnexApp() {
             </div>
           </div>
           {/* ─── YOUR PROFILE ─── */}
-          <div style={{ ...card, marginBottom: 20, padding: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>🧬 About You <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted }}>(helps find connections relevant to YOU)</span></div>
+          <div style={{ ...card, marginBottom: 20, padding: 20, border: profileSaved ? `1px solid ${C.green}` : `1px solid ${C.border}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>🧬 About You <span style={{ fontSize: 11, fontWeight: 400, color: C.textMuted }}>(helps find connections relevant to YOU)</span></div>
+              {profileSaved && <span style={{ fontSize: 11, color: C.green, fontWeight: 600 }}>✓ Saved</span>}
+            </div>
             <div style={{ fontSize: 11, color: C.textDim, marginBottom: 14 }}>The more you share, the smarter the suggestions. All data stays private.</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <input value={userName} onChange={(e) => setUserName(e.target.value)} placeholder="Your name" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
-              <input value={userCity} onChange={(e) => setUserCity(e.target.value)} placeholder="Your city (e.g. Bangkok)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userName} onChange={(e) => { setUserName(e.target.value); setProfileSaved(false); }} placeholder="Your name" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
+              <input value={userCity} onChange={(e) => { setUserCity(e.target.value); setProfileSaved(false); }} placeholder="Your city (e.g. Bangkok)" style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none" }} />
               <div style={{ gridColumn: "1 / -1", display: "flex", gap: 10 }}>
                 <div style={{ flex: 1, position: "relative" }}>
                   <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>𝕏</span>
-                  <input value={userTwitter} onChange={(e) => setUserTwitter(e.target.value)} placeholder="X handle (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                  <input value={userTwitter} onChange={(e) => { setUserTwitter(e.target.value); setProfileSaved(false); }} placeholder="X handle (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ flex: 1, position: "relative" }}>
                   <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>in</span>
-                  <input value={userLinkedin} onChange={(e) => setUserLinkedin(e.target.value)} placeholder="LinkedIn URL" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                  <input value={userLinkedin} onChange={(e) => { setUserLinkedin(e.target.value); setProfileSaved(false); }} placeholder="LinkedIn URL" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
                 </div>
               </div>
               <div style={{ gridColumn: "1 / -1", position: "relative" }}>
                 <span style={{ position: "absolute", left: 10, top: 9, fontSize: 11, color: C.textDim }}>📷</span>
-                <input value={userInstagram} onChange={(e) => setUserInstagram(e.target.value)} placeholder="Instagram (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                <input value={userInstagram} onChange={(e) => { setUserInstagram(e.target.value); setProfileSaved(false); }} placeholder="Instagram (e.g. @username)" style={{ width: "100%", padding: "8px 12px 8px 28px", borderRadius: 8, border: `1px solid ${C.border}`, background: C.bg, color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+              </div>
+              <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                <button 
+                  onClick={() => setProfileSaved(true)} 
+                  disabled={!userName && !userCity && !userTwitter && !userLinkedin && !userInstagram}
+                  style={{ 
+                    padding: "10px 24px", 
+                    borderRadius: 8, 
+                    border: "none", 
+                    background: (userName || userCity || userTwitter || userLinkedin || userInstagram) ? C.accent : C.border, 
+                    color: (userName || userCity || userTwitter || userLinkedin || userInstagram) ? "#fff" : C.textDim, 
+                    fontSize: 12, 
+                    fontWeight: 700, 
+                    cursor: (userName || userCity || userTwitter || userLinkedin || userInstagram) ? "pointer" : "not-allowed",
+                    width: "100%"
+                  }}
+                >
+                  {profileSaved ? "✓ Profile Saved" : "Save Profile"}
+                </button>
               </div>
             </div>
           </div>
