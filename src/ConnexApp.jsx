@@ -391,8 +391,9 @@ export default function ConnexApp() {
           return;
         }
       }
-    } catch (_) {
+    } catch (apiError) {
       // API unavailable — fall through to offline
+      console.error("Brain API error:", apiError);
     }
 
     // Fallback: run local engine

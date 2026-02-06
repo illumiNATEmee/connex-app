@@ -1,8 +1,10 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'fs';
 import path from 'path';
+import { supabase, upsertProfile, saveChat, getAllProfiles, getNetworkStats } from './supabase.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -121,6 +123,20 @@ app.post('/api/analyze', async (req, res) => {
     if (jsonMatch) {
       try {
         const parsed = JSON.parse(jsonMatch[0]);
+        
+        // 🗄️ PERSIST TO SUPABASE
+        if (parsed.profiles && Array.isArray(parsed.profiles)) {
+          console.log(`💾 Saving ${parsed.profiles.length} profiles to Supabase...`);
+          for (const profile of parsed.profiles) {
+            try {
+              await upsertProfile(profile);
+            } catch (dbErr) {
+              console.error('Profile save error:', dbErr.message);
+            }
+          }
+          console.log('✅ Profiles saved');
+        }
+        
         return res.json(parsed);
       } catch (e) {
         return res.json({ raw: text, parseError: e.message });
@@ -257,7 +273,93 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+// ============ NETWORK DATA ENDPOINTS ============
+
+// Get all profiles in the network
+app.get('/api/profiles', async (req, res) => {
+  try {
+    const profiles = await getAllProfiles();
+    res.json({ profiles, count: profiles.length });
+  } catch (err) {
+    console.error('Get profiles error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get network stats
+app.get('/api/stats', async (req, res) => {
+  try {
+    const stats = await getNetworkStats();
+    res.json(stats);
+  } catch (err) {
+    console.error('Get stats error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search profiles by name
+app.get('/api/profiles/search', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json({ profiles: [] });
+    
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .or(`name.ilike.%${q}%,display_name.ilike.%${q}%,company.ilike.%${q}%`)
+      .limit(20);
+    
+    res.json({ profiles: data || [] });
+  } catch (err) {
+    console.error('Search error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Find cross-chat connections (people in multiple chats)
+app.get('/api/connectors', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('chat_members')
+      .select(`
+        profile_id,
+        profiles (name, company, location),
+        chat_id
+      `)
+      .order('profile_id');
+    
+    // Group by profile and count chats
+    const profileChats = {};
+    (data || []).forEach(row => {
+      if (!profileChats[row.profile_id]) {
+        profileChats[row.profile_id] = { 
+          profile: row.profiles, 
+          chats: [] 
+        };
+      }
+      profileChats[row.profile_id].chats.push(row.chat_id);
+    });
+    
+    // Filter to people in 2+ chats
+    const connectors = Object.entries(profileChats)
+      .filter(([_, v]) => v.chats.length > 1)
+      .map(([id, v]) => ({ 
+        profile_id: id, 
+        ...v.profile, 
+        chat_count: v.chats.length 
+      }))
+      .sort((a, b) => b.chat_count - a.chat_count);
+    
+    res.json({ connectors });
+  } catch (err) {
+    console.error('Connectors error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🧠 Connex Brain server running on port ${PORT}`);
   console.log(`   Health: http://localhost:${PORT}/api/health`);
+  console.log(`   Profiles: http://localhost:${PORT}/api/profiles`);
+  console.log(`   Stats: http://localhost:${PORT}/api/stats`);
 });
