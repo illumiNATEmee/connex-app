@@ -180,6 +180,111 @@ export async function findCrossReferences(name) {
   return data || [];
 }
 
+// ═══════════════════════════════════════════════════════════
+// BUILT PROFILE STORAGE
+// For ProfileBuilder-created profiles
+// ═══════════════════════════════════════════════════════════
+
+export async function saveBuiltProfile(builtResult) {
+  // Extract from ProfileBuilder result
+  const merged = builtResult.merged_profile || {};
+  const phoneInfo = builtResult.phone_info || {};
+  const verifications = builtResult.verifications || {};
+  
+  const profileData = {
+    // Core identity
+    phone: merged.phone || builtResult.input?.phone || null,
+    name: merged.name || builtResult.input?.name,
+    display_name: merged.name || builtResult.input?.name,
+    email: builtResult.input?.email || null,
+    
+    // Location from phone signals
+    location: {
+      city: phoneInfo.city,
+      state: phoneInfo.state,
+      region: phoneInfo.region,
+      country: phoneInfo.country,
+      source: 'phone_area_code',
+      confidence: phoneInfo.confidence,
+    },
+    
+    // Social handles
+    social_handles: {
+      linkedin: verifications.linkedin?.exists ? {
+        url: builtResult.input?.linkedin,
+        verified: true,
+      } : null,
+      instagram: verifications.instagram?.exists ? {
+        handle: builtResult.input?.instagram,
+        verified: true,
+      } : null,
+      x: verifications.x?.exists ? {
+        handle: builtResult.input?.x,
+        verified: true,
+      } : null,
+    },
+    
+    // Work info if enriched
+    role: merged.work?.title || null,
+    company: merged.work?.company || null,
+    
+    // Interests and skills
+    interests: merged.interests || [],
+    expertise: merged.skills || [],
+    
+    // Metadata
+    confidence_score: builtResult.completeness / 100,
+    sources: ['profile_builder'],
+    raw_signals: {
+      phone_info: phoneInfo,
+      verifications: verifications,
+      gaps: builtResult.gaps,
+    },
+    updated_at: new Date().toISOString(),
+  };
+  
+  // Use phone as unique key if available, otherwise generate one
+  const { data, error } = await supabase
+    .from('profiles')
+    .upsert(profileData, {
+      onConflict: 'phone',
+      ignoreDuplicates: false,
+    })
+    .select()
+    .single();
+  
+  if (error) {
+    console.error('Save built profile error:', error);
+    // Try insert without conflict resolution
+    const { data: insertData, error: insertError } = await supabase
+      .from('profiles')
+      .insert(profileData)
+      .select()
+      .single();
+    
+    if (insertError) {
+      console.error('Insert profile error:', insertError);
+      return null;
+    }
+    return insertData;
+  }
+  
+  return data;
+}
+
+export async function getBuiltProfiles(options = {}) {
+  const { limit = 50, offset = 0 } = options;
+  
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .contains('sources', ['profile_builder'])
+    .order('updated_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  
+  return data || [];
+}
+
 export async function getNetworkStats() {
   const { data: profiles } = await supabase
     .from('profiles')

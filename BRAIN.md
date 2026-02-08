@@ -79,17 +79,38 @@ People in a group chat meet IRL or have meaningful conversations they wouldn't h
 
 ## 🏗️ Build Priorities
 
-### Phase 1: Parser + Profiler (CURRENT)
+### Phase 1: Parser + Profiler (COMPLETE)
 **Goal:** Turn a WhatsApp export into rich member profiles
 
-- [ ] WhatsApp chat export parser
-- [ ] Member identification
-- [ ] LLM-powered profile extraction
-- [ ] Location detection
-- [ ] Interest/affinity detection
-- [ ] Store in structured format
+- [x] WhatsApp chat export parser
+- [x] Member identification
+- [x] LLM-powered profile extraction
+- [x] Location detection
+- [x] Interest/affinity detection
+- [x] Store in structured format
 
-**MVP Output:** JSON profiles for each member
+**MVP Output:** JSON profiles for each member ✅
+
+### Phase 1.5: Who Is This? (IN PROGRESS)
+**Goal:** Contact memory — never forget where you met someone
+
+- [x] Phone number normalization (E.164)
+- [x] Phone metadata extraction (country, area code, likely city)
+- [x] Contact save with context (timestamp + location + tags + category)
+- [x] Lookup API: query by phone → full context card
+- [x] Search API: query by name/context/tags
+- [x] Related contacts (same time = same event inference)
+- [x] Mystery contacts list (contacts with no context)
+- [x] LLM-powered context inference from sparse signals
+- [x] Bulk import endpoint
+- [x] Stats endpoint
+- [ ] Voice note transcription (Whisper integration)
+- [ ] Calendar correlation engine (needs calendar API)
+- [ ] Social enrichment (LinkedIn, Twitter by phone)
+- [ ] Mutual contact detection
+- [ ] Mobile UI for capture + lookup
+
+**MVP Output:** "Who is +1-415-555-1234?" → Full context card ✅
 
 ### Phase 2: The Brain Core
 **Goal:** Generate match scores and suggestions
@@ -327,6 +348,197 @@ DEEP matching: not just "both like UFC" but "both Stanford MBA,
 
 ---
 
+## 🔍 Who Is This? — Contact Memory
+
+### The Problem
+You saved a contact months ago. Now they text you. You have no idea who they are, where you met, or why you have their number.
+
+This is **universal** — everyone has mystery contacts. And it's a trust killer: replying "sorry, who is this?" is awkward and damages relationships.
+
+### The Solution
+Connex becomes your **contact memory** — capturing context when you add contacts and recalling it when you need it.
+
+### Data Capture (Save Time)
+
+**Automatic signals:**
+- **Timestamp** — When you saved the contact
+- **Location** — Where you were (GPS/approximate)
+- **Calendar correlation** — What event was happening? (Conference? Dinner?)
+- **Recent messages** — Did they text you first? What did they say?
+- **Nearby WiFi/venue** — "Saved at Devcon Bangkok" (if detectable)
+
+**Prompted context (low friction):**
+- Quick voice note: "Met at Devcon, works on DeFi infrastructure"
+- Photo together (optional)
+- Tags: `#devcon` `#defi` `#bangkok`
+- One-tap categories: Work / Social / Dating / Service / Random
+
+**Enrichment (background):**
+- Reverse phone lookup (carrier, region)
+- Social search (LinkedIn, Twitter, Instagram by phone)
+- Mutual connections (do any of your contacts know them?)
+- WhatsApp profile photo + status
+
+### Data Recall (Lookup Time)
+
+**Query:** "Who is +1-415-555-1234?"
+
+**Response:**
+```
+📱 Sarah Chen
+━━━━━━━━━━━━━━━━━━━━━━━━
+📍 Met: Devcon Bangkok, Nov 12 2024
+📝 Context: "DeFi infrastructure, interested in institutional tools"
+🏢 LinkedIn: Product @ Stripe
+📸 [Photo from that night]
+💬 First message: "Hey! Great meeting you at the party"
+🔗 Mutual: You both know @ArulM, @Kevin_FF
+━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+### Integration Points
+
+**Phone-level (ideal):**
+- iOS Shortcuts / Android automation on contact save
+- Trigger Connex capture flow
+
+**App-level (MVP):**
+- Manual add: paste number + voice note
+- Batch import: scan contacts, enrich what's possible
+- Lookup: search by number, name, or context
+
+**WhatsApp integration:**
+- When someone messages, auto-lookup in Connex
+- Show context card before you reply
+
+### Smart Features
+
+**1. Time-Location Correlation**
+- "You saved this contact on March 15, 2024"
+- "You were at SXSW Austin that week"
+- "Your calendar shows 'Drinks with Austin crypto people' that evening"
+- → **Inference:** Probably met at SXSW crypto meetup
+
+**2. Message Archaeology**
+- Search your chat history with this number
+- First message often reveals context
+- "Hey, great meeting you at John's wedding!"
+
+**3. Social Graph Lookup**
+- Check if mutual friends know them
+- "Ask Kevin — you were both at that dinner"
+
+**4. Degraded Recall**
+Even with NO context captured, Connex can still help:
+- Area code analysis: "Bay Area number, saved while you were in SF"
+- Calendar check: "You had 3 events that day — any ring a bell?"
+- Contact proximity: "Saved within 5 min of saving 'Mike Crypto' — same event?"
+
+### Privacy Model
+
+- All data stored locally (or encrypted cloud)
+- No sharing of contact context without explicit consent
+- "Who Is This?" lookup is private — only you see it
+- Optional: Ask the person directly with a friendly template
+
+### User Flows
+
+**Flow 1: Save with Context**
+```
+[Save contact in phone]
+     ↓
+[Connex notification: "Add context for Sarah Chen?"]
+     ↓
+[Tap → voice note / photo / tags / skip]
+     ↓
+[Context saved with timestamp + location]
+```
+
+**Flow 2: Lookup Mystery Contact**
+```
+[Get text from unknown number]
+     ↓
+[Open Connex → "Who Is This?"]
+     ↓
+[See full context card]
+     ↓
+[Reply confidently]
+```
+
+**Flow 3: Batch Enrich**
+```
+[Import contacts to Connex]
+     ↓
+[Brain enriches: LinkedIn, socials, mutual connections]
+     ↓
+[Flag contacts with zero context]
+     ↓
+[Prompt: "You have 47 mystery contacts. Want to review?"]
+```
+
+### Why This Wins
+
+1. **Universal problem** — Everyone has mystery contacts
+2. **Immediate value** — No network effect needed, works solo
+3. **Trust builder** — Remembering context = stronger relationships
+4. **Data moat** — Your contact memory becomes invaluable over time
+5. **Connex hook** — Users engage daily, not just for events
+
+### Technical Notes
+
+**Phone number normalization:**
+- Store E.164 format: +14155551234
+- Handle: (415) 555-1234, 415-555-1234, +1 415 555 1234
+- International: +852, +65, +44 etc.
+
+**Fuzzy matching:**
+- Name variations: "Sarah", "Sarah Chen", "S. Chen"
+- Number variations: With/without country code
+- Nickname matching: "Big Mike" → "Michael Thompson"
+
+### Schema Addition
+
+```json
+{
+  "contact_memory": {
+    "phone": "+14155551234",
+    "name": "Sarah Chen",
+    "saved_at": "2024-11-12T22:30:00Z",
+    "saved_location": {
+      "lat": 13.7563,
+      "lng": 100.5018,
+      "venue": "Devcon Bangkok",
+      "city": "Bangkok"
+    },
+    "capture_method": "voice_note",
+    "context_raw": "Met at Devcon, works on DeFi infrastructure at Stripe",
+    "tags": ["devcon", "defi", "bangkok", "work"],
+    "category": "work",
+    "photo_url": null,
+    "calendar_correlation": {
+      "event": "Devcon Bangkok - Day 2",
+      "confidence": 0.85
+    },
+    "enrichment": {
+      "linkedin": "linkedin.com/in/sarahchen",
+      "twitter": "@sarahbuilds",
+      "company": "Stripe",
+      "role": "Product Manager",
+      "mutual_contacts": ["+1234...", "+5678..."]
+    },
+    "first_message": {
+      "date": "2024-11-13",
+      "text": "Hey! Great meeting you at the party last night",
+      "direction": "inbound"
+    },
+    "last_contacted": "2025-01-15",
+    "interaction_count": 12
+  }
+}
+```
+
+---
+
 ## ❓ Open Questions
 
 - How to get calendar data? (Cal.com integration? Calendly?)
@@ -361,8 +573,10 @@ DEEP matching: not just "both like UFC" but "both Stanford MBA,
 - ✅ `location-map.js` - Geographic cluster visualization
 - ✅ `index.js` - Main API entry point
 - ✅ `run-pipeline.sh` - One-command pipeline runner
+- ✅ `contact-memory.js` - Who Is This? contact memory engine (NEW)
+- ✅ `migrations/002_contact_memory.sql` - Database schema (NEW)
 
-**Stats:** ~2,500 lines of code, 7.7MB total (mostly node_modules)
+**Stats:** ~3,000+ lines of code
 
 ### Test Results (FF Fraternity Chat)
 - 28 members profiled

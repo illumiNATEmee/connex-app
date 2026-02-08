@@ -253,12 +253,88 @@ export default function SecondDegreeMatcher({ onBack }) {
   const [copied, setCopied] = useState(false);
   const [expandedMatch, setExpandedMatch] = useState(null);
   
+  // Network state
+  const [savedProfiles, setSavedProfiles] = useState([]);
+  const [networkLoaded, setNetworkLoaded] = useState(false);
+  
   // Interest input
   const [interestInput, setInterestInput] = useState("");
   const [lookingForInput, setLookingForInput] = useState("");
   const [offeringInput, setOfferingInput] = useState("");
   
   const fileRef = useRef(null);
+  
+  // Load saved profiles from network
+  const loadSavedNetwork = useCallback(async () => {
+    try {
+      setProcessingStatus("Loading saved network...");
+      const res = await fetch(`${API_BASE}/api/profiles`);
+      if (res.ok) {
+        const data = await res.json();
+        setSavedProfiles(data.profiles || []);
+        setNetworkLoaded(true);
+        return data.profiles || [];
+      }
+    } catch (e) {
+      console.error("Failed to load network:", e);
+    }
+    return [];
+  }, []);
+  
+  // Match against saved network
+  const matchAgainstNetwork = useCallback(async () => {
+    if (savedProfiles.length === 0) {
+      await loadSavedNetwork();
+    }
+    
+    if (savedProfiles.length < 2) {
+      setProcessingStatus("Not enough saved profiles to match");
+      return;
+    }
+    
+    setProcessing(true);
+    setProcessingStatus("Matching against saved network...");
+    
+    // Convert saved profiles to match format
+    const profiles = savedProfiles.map(sp => ({
+      display_name: sp.name || sp.display_name,
+      location: { primary: sp.location?.city || sp.location?.region },
+      interests: (sp.interests || []).map(i => 
+        typeof i === 'string' ? { category: i, keywords: [i] } : i
+      ),
+      brain: {
+        role: sp.role,
+        company: sp.company,
+        industry: sp.industry,
+        expertise: sp.expertise || [],
+        looking_for: sp.looking_for || [],
+        offering: sp.offering || [],
+      },
+    }));
+    
+    // Score each profile against user
+    const scoredMatches = profiles
+      .map(profile => {
+        const matchData = scoreMatch(userProfile, profile, {});
+        return {
+          profile,
+          ...matchData,
+          introRequest: generateIntroRequest(userProfile, profile, "your network", matchData),
+          introMessage: generateIntroMessage(userProfile, profile, "your network", matchData),
+        };
+      })
+      .filter(m => m.score > 20)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10);
+    
+    setMatches({
+      profiles,
+      scoredMatches,
+      source: "network",
+    });
+    setProcessing(false);
+    setProcessingStatus("");
+  }, [savedProfiles, userProfile, loadSavedNetwork]);
 
   // Handle interest additions
   const addInterest = useCallback(() => {
@@ -379,11 +455,31 @@ export default function SecondDegreeMatcher({ onBack }) {
       .sort((a, b) => b.score - a.score)
       .slice(0, 10); // Top 10 matches
 
+    // Save profiles to network (async, don't wait)
+    setProcessingStatus("Saving to network...");
+    try {
+      for (const profile of profiles.slice(0, 20)) { // Limit to top 20
+        if (profile.brain || profile.interests?.length > 0) {
+          fetch(`${API_BASE}/api/profile/quick`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: profile.display_name,
+              // Convert profile to save format
+            }),
+          }).catch(() => {}); // Fire and forget
+        }
+      }
+    } catch (e) {
+      // Non-blocking save
+    }
+    
     setMatches({
       profiles,
       scoredMatches,
       parsedChat,
       deepSignals,
+      source: "chat",
     });
     setProcessing(false);
     setProcessingStatus("");
@@ -828,43 +924,69 @@ export default function SecondDegreeMatcher({ onBack }) {
           />
         </div>
 
-        {/* Step 3: Upload */}
-        <div 
-          style={{ 
-            ...card, 
-            border: `2px dashed ${C.accent}`, 
-            textAlign: "center", 
-            padding: 40,
-            cursor: "pointer",
-            background: processing ? C.accentSoft : C.card,
-          }}
-          onClick={() => !processing && fileRef.current?.click()}
-        >
-          <input 
-            ref={fileRef} 
-            type="file" 
-            accept=".txt,.text" 
-            style={{ display: "none" }} 
-            onChange={(e) => handleFile(e.target.files[0])} 
-          />
+        {/* Step 3: Source Selection */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          {/* Option A: Upload Chat */}
+          <div 
+            style={{ 
+              ...card, 
+              marginBottom: 0,
+              border: `2px dashed ${C.accent}`, 
+              textAlign: "center", 
+              padding: 28,
+              cursor: processing ? "not-allowed" : "pointer",
+              background: processing ? C.accentSoft : C.card,
+            }}
+            onClick={() => !processing && fileRef.current?.click()}
+          >
+            <input 
+              ref={fileRef} 
+              type="file" 
+              accept=".txt,.text" 
+              style={{ display: "none" }} 
+              onChange={(e) => handleFile(e.target.files[0])} 
+            />
+            
+            {processing ? (
+              <>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>Analyzing...</div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>{processingStatus}</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>📁</div>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                  Upload Chat Export
+                </div>
+                <div style={{ fontSize: 11, color: C.textMuted }}>
+                  WhatsApp → Export → No Media
+                </div>
+              </>
+            )}
+          </div>
           
-          {processing ? (
-            <>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Analyzing...</div>
-              <div style={{ fontSize: 12, color: C.textMuted }}>{processingStatus}</div>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
-                Step 3: Upload {connectorName ? `${connectorName}'s` : "their"} group chat
-              </div>
-              <div style={{ fontSize: 12, color: C.textMuted }}>
-                WhatsApp → Export Chat → Without Media → Drop here
-              </div>
-            </>
-          )}
+          {/* Option B: Use Saved Network */}
+          <div 
+            style={{ 
+              ...card, 
+              marginBottom: 0,
+              border: `2px dashed ${C.cyan}`, 
+              textAlign: "center", 
+              padding: 28,
+              cursor: processing ? "not-allowed" : "pointer",
+              background: C.card,
+            }}
+            onClick={() => !processing && matchAgainstNetwork()}
+          >
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🌐</div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+              Match Against Network
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted }}>
+              {networkLoaded ? `${savedProfiles.length} saved profiles` : "Use saved profiles"}
+            </div>
+          </div>
         </div>
 
         {/* How it works */}

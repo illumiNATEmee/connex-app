@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef } from "react";
 import { runPipeline, normLoc, parseWhatsAppText, enrichProfiles, analyzeNetwork, generateSuggestions, getDMStrategy, extractSharedLinks, extractPhoneSignals, extractTimingPatterns, extractEmojiProfile, prioritizeContacts, buildRelationshipGraph, extractIntents, extractEndorsements, extractSelfDisclosures, generateSearchQueries } from "./connex-engine.js";
 import SecondDegreeMatcher from "./SecondDegreeMatcher.jsx";
+import ProfileBuilder from "./ProfileBuilder.jsx";
+import BrainDashboard from "./BrainDashboard.jsx";
 import { API_BASE } from "./config.js";
 
 // Engine imported from connex-engine.js — offline fallback
@@ -384,6 +386,22 @@ export default function ConnexApp() {
           setGroupInsights(data.group_insights || null);
           setTrustActivations(data.trust_activations || []);
           setAnalysisMode("claude");
+          
+          // Save top profiles to network (async, non-blocking)
+          setProcessingStatus("Saving to network...");
+          const topProfiles = profiles.slice(0, 20);
+          fetch(`${API_BASE}/api/profile/batch`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              profiles: topProfiles.map(p => ({
+                name: p.display_name,
+                // phone would come from contact if available
+              })),
+              quickMode: true,
+            }),
+          }).catch(() => {}); // Fire and forget
+          
           setResults({ parsedChat, profiles, analysis, suggestions, dmStrategy });
           setProcessing(false);
           setProcessingStatus("");
@@ -470,6 +488,14 @@ export default function ConnexApp() {
   if (mode === "2nd_degree") {
     return <SecondDegreeMatcher onBack={() => setMode(null)} />;
   }
+  
+  if (mode === "profile_builder") {
+    return <ProfileBuilder onBack={() => setMode(null)} />;
+  }
+  
+  if (mode === "brain") {
+    return <BrainDashboard onBack={() => setMode(null)} />;
+  }
 
   // ─── UPLOAD (Group Analysis) ───
   if (!results) {
@@ -513,7 +539,37 @@ export default function ConnexApp() {
               <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
                 Upload a friend's chat →<br/>find who YOU should meet
               </div>
-              <div style={{ marginTop: 8, fontSize: 10, padding: "4px 10px", borderRadius: 4, background: C.green, color: "#000", display: "inline-block", fontWeight: 700, letterSpacing: 1 }}>NEW</div>
+            </div>
+            <div 
+              onClick={() => setMode("profile_builder")}
+              style={{ 
+                flex: 1, ...card, marginBottom: 0, cursor: "pointer",
+                borderColor: C.cyan + "60",
+                background: C.cyanSoft,
+                padding: 20, textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🏗️</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: C.cyan }}>Build a Profile</div>
+              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+                Enter name + handles →<br/>auto-enrich from socials
+              </div>
+            </div>
+            <div 
+              onClick={() => setMode("brain")}
+              style={{ 
+                flex: 1, ...card, marginBottom: 0, cursor: "pointer",
+                borderColor: "#bc8cff60",
+                background: "rgba(188,140,255,0.1)",
+                padding: 20, textAlign: "center",
+              }}
+            >
+              <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>
+              <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, color: "#bc8cff" }}>Unified Brain</div>
+              <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>
+                Your context + proactive<br/>connection intelligence
+              </div>
+              <div style={{ marginTop: 8, fontSize: 10, padding: "4px 10px", borderRadius: 4, background: "#bc8cff", color: "#000", display: "inline-block", fontWeight: 700, letterSpacing: 1 }}>NEW</div>
             </div>
           </div>
           {/* ─── YOUR PROFILE ─── */}
